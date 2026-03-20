@@ -91,6 +91,45 @@ public class CucumberFeature {
     }
 
     // -----------------------------------------------------------------------
+    // Tag extraction for Case ID
+    // -----------------------------------------------------------------------
+
+    /**
+     * Searches through feature-level tags for one matching the given prefix.
+     * Returns the matching tag (with @ symbol), or "UNKNOWN" if not found.
+     * Used to populate the "Case ID" column in Dashboard and Features sections.
+     *
+     * @param prefix the tag prefix to search for (e.g., "QTEST_TC_", "@QTEST_TC_")
+     * @return the matching tag name (e.g., "@QTEST_TC_1001") or "UNKNOWN"
+     */
+    public String extractQtestTag(String prefix) {
+        if (prefix == null || prefix.isBlank()) {
+            return "UNKNOWN";
+        }
+
+        // Normalize prefix: remove leading @ if present, ensure uppercase
+        String searchPrefix = prefix.startsWith("@")
+                ? prefix.substring(1).toUpperCase()
+                : prefix.toUpperCase();
+
+        // Search through feature tags
+        for (String tag : tags) {
+            if (tag == null) continue;
+            // Normalize tag: remove leading @, ensure uppercase
+            String normalizedTag = tag.startsWith("@")
+                    ? tag.substring(1).toUpperCase()
+                    : tag.toUpperCase();
+            // Check if tag starts with prefix
+            if (normalizedTag.startsWith(searchPrefix)) {
+                // Return original tag with @ symbol for display
+                return tag.startsWith("@") ? tag : "@" + tag;
+            }
+        }
+
+        return "UNKNOWN";
+    }
+
+    // -----------------------------------------------------------------------
     // Getters / Setters
     // -----------------------------------------------------------------------
 
