@@ -118,9 +118,9 @@ public class ConsolidatedFixupIT {
         + "\"result\":{\"status\":\"passed\",\"duration\":500000000}}]," 
         + "\"after\":[{\"result\":{\"status\":\"passed\",\"duration\":100000000," 
         + "\"embeddings\":["
-        + "{\"mime_type\":\"image/png\",\"data\":\"" + PNG1 + "\"}," 
-        + "{\"mime_type\":\"image/png\",\"data\":\"" + PNG1 + "\"}," 
-        + "{\"mime_type\":\"image/png\",\"data\":\"" + PNG1 + "\"}" 
+        + "{\"mime_type\":\"image/png\",\"data\":\"" + PNG_1X1 + "\"}," 
+        + "{\"mime_type\":\"image/png\",\"data\":\"" + PNG_1X1 + "\"}," 
+        + "{\"mime_type\":\"image/png\",\"data\":\"" + PNG_1X1 + "\"}" 
         + "]}}]"
         + "}]}]";
 
@@ -306,8 +306,9 @@ public class ConsolidatedFixupIT {
 
         CucumberScenario scenario = features.get(0).getActualScenarios().get(0);
         assertFalse("Before hooks present", scenario.getBeforeHooks().isEmpty());
+        CucumberStep beforeHook = scenario.getBeforeHooks().get(0);
         assertEquals("Before hook failed",
-                "failed", scenario.getBeforeHooks().get(0).getResult().getStatus());
+                "failed", beforeHook.getStatus());
 
         File pdf = tempPdf("hook-error");
         new ConsolidatedPdfGenerator(
