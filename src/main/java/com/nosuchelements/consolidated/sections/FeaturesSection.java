@@ -17,8 +17,8 @@ import java.util.List;
  * Features section — one row per feature with stats and qTest/case-ID tag.
  *
  * The Case ID column uses the configured tagPrefix to locate the tag on each
- * feature, strips the prefix, and renders it as "TC-<id>".
- * Features with no matching tag show a dash.
+ * feature, strips the prefix, and renders it as "TC_####".
+ * Features with no matching tag show "NA".
  */
 public class FeaturesSection {
 
@@ -40,8 +40,7 @@ public class FeaturesSection {
 
     public FeaturesSection(PdfStyler styler, String tagPrefix) {
         this.s         = styler;
-        this.tagPrefix = (tagPrefix != null && !tagPrefix.isBlank())
-                ? tagPrefix.strip() : "QTEST_TC_";
+        this.tagPrefix = tagPrefix;
     }
 
     public void build(PDDocument doc, PDPage firstPage,
@@ -116,7 +115,7 @@ public class FeaturesSection {
 
             s.drawText(cur.doc, cs, caseId, C_CASE, ry,
                     s.regularFont(), 8f,
-                    "\u2014".equals(caseId) ? ColorScheme.TEXT_HINT : ColorScheme.ACCENT);
+                    "NA".equals(caseId) ? ColorScheme.TEXT_HINT : ColorScheme.ACCENT);
 
             s.drawText(cur.doc, cs, st, C_ST, ry,
                     s.boldFont(), 8f, ColorScheme.textForStatus(st));
@@ -158,15 +157,22 @@ public class FeaturesSection {
     }
 
     /**
-     * Extract the case-ID tag using the configured prefix and format as "TC-NNN".
-     * Returns "—" (em dash) when no matching tag is found.
+     * Extract the case-ID tag using the configured prefix and format as "TC_####".
+     * The first tag whose name starts with tagPrefix is used; the prefix is
+     * stripped and the remainder is returned as "TC_####". If nothing matches,
+     * returns "NA".
      */
     private String extractCaseId(CucumberFeature f) {
-        String tag = f.extractQtestTag(tagPrefix);
-        if ("UNKNOWN".equals(tag)) return "\u2014";
-        String stripped = tag.toUpperCase().startsWith(tagPrefix.toUpperCase())
-                ? tag.substring(tagPrefix.length()) : tag;
-        return "TC-" + stripped;
+        if (tagPrefix == null || tagPrefix.isBlank()) {
+            return "NA";
+        }
+        for (String tag : f.getTags()) {
+            if (tag != null && tag.startsWith(tagPrefix)) {
+                String remainder = tag.substring(tagPrefix.length());
+                return "TC_" + remainder;
+            }
+        }
+        return "NA";
     }
 
     private PDPageContentStream cs(ConsolidatedPageCursor cur) throws IOException {
