@@ -340,16 +340,22 @@ public class DashboardSection {
     }
 
     /**
-     * Extract a short case ID from the feature's tags using the configured prefix.
-     * Returns "—" if no matching tag is found.
+     * Extract a case ID from the feature's tags using the configured tagPrefix.
+     * The first tag whose name starts with tagPrefix is used; the prefix is
+     * stripped and the remainder is returned as "TC_####". If nothing matches,
+     * returns "NA".
      */
     private String extractCaseId(CucumberFeature f) {
-        String tag = f.extractQtestTag(tagPrefix);
-        if ("UNKNOWN".equals(tag)) return "—";
-        // Strip prefix and return as "TC-NNN" (consistent with FeaturesSection)
-        String stripped = tag.toUpperCase().startsWith(tagPrefix.toUpperCase())
-                ? tag.substring(tagPrefix.length()) : tag;
-        return "TC-" + stripped;
+        if (tagPrefix == null || tagPrefix.isBlank()) {
+            return "NA";
+        }
+        for (String tag : f.getTags()) {
+            if (tag != null && tag.startsWith(tagPrefix)) {
+                String remainder = tag.substring(tagPrefix.length());
+                return "TC_" + remainder;
+            }
+        }
+        return "NA";
     }
 
     // -----------------------------------------------------------------------
