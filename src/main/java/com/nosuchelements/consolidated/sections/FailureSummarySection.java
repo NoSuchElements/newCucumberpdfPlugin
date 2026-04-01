@@ -96,6 +96,8 @@ public class FailureSummarySection {
             for (CucumberScenario sc : group.scenarios) {
                 cur.ensureSpace(SHDR + LMD * 2);
                 drawFailingScenarioHeader(cur, sc);
+                // Add a small gap between the scenario header band and the first step
+                cur.advance(6f);
                 drawFailingSteps(cur, sc);
                 cur.advance(10f);
             }
