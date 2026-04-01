@@ -95,6 +95,9 @@ public class DetailedSection {
 
         drawScenarioHeader(cur, feature, sc);
 
+        // Leave a small gap between the header band and the first content row
+        cur.advance(6f);
+
         // Before-hook errors
         renderHookErrors(cur, sc.getBeforeHooks(), "Before hook failed");
 
