@@ -135,7 +135,7 @@ public class DashboardSection {
             s.drawText(cur.doc, cs, "Generated: " + ts,
                     M, top - 35f, s.regularFont(), 9f, ColorScheme.TEXT_HINT);
             // Plugin tag
-            s.drawText(cur.doc, cs, "Cucumber PDF Reporter  v1.1.6",
+            s.drawText(cur.doc, cs, "Cucumber PDF Reporter  v1.2.0",
                     M, top - 50f, s.regularFont(), 7f, ColorScheme.TEXT_HINT);
 
             // Status badge (right)
@@ -314,10 +314,10 @@ public class DashboardSection {
 
             // Status dot
             s.dot(cs, M + 8f, ry + 4f, 3.5f, ColorScheme.forStatus(st));
-            // Feature name (tighter column now that Case ID column exists)
+            // Feature name
             s.drawText(cur.doc, cs, trunc(safe(f.getName()), 38),
                     M + 18f, ry, s.regularFont(), 8.5f, ColorScheme.TEXT_SECONDARY);
-            // Case ID (tagPrefix-based)
+            // Case ID
             s.drawText(cur.doc, cs, trunc(caseId, 12),
                     M + CW * .44f, ry, s.regularFont(), 7.5f, ColorScheme.TEXT_MUTED);
             // Status
@@ -341,17 +341,32 @@ public class DashboardSection {
 
     /**
      * Extract a case ID from the feature's tags using the configured tagPrefix.
-     * The first tag whose name starts with tagPrefix is used; the prefix is
-     * stripped and the remainder is returned as "TC_####". If nothing matches,
-     * returns "NA".
+     *
+     * Normalises both the prefix and each tag by stripping a leading '@' and
+     * doing a case-insensitive comparison, so all of the following work:
+     *   tagPrefix = "QTEST_TC_"  and tag = "@QTEST_TC_1001"  → "TC_1001"
+     *   tagPrefix = "@QTEST_TC_" and tag = "qtest_tc_5050"   → "TC_5050"
+     *
+     * Returns "NA" when no matching tag is found or tagPrefix is blank.
      */
     private String extractCaseId(CucumberFeature f) {
         if (tagPrefix == null || tagPrefix.isBlank()) {
             return "NA";
         }
+        // Normalise prefix: strip leading '@', uppercase
+        String prefix = tagPrefix.startsWith("@")
+                ? tagPrefix.substring(1).toUpperCase()
+                : tagPrefix.toUpperCase();
+
         for (String tag : f.getTags()) {
-            if (tag != null && tag.startsWith(tagPrefix)) {
-                String remainder = tag.substring(tagPrefix.length());
+            if (tag == null) continue;
+            // Normalise tag: strip leading '@', uppercase
+            String normalised = tag.startsWith("@")
+                    ? tag.substring(1).toUpperCase()
+                    : tag.toUpperCase();
+            if (normalised.startsWith(prefix)) {
+                // Return the numeric/identifier portion formatted as TC_####
+                String remainder = normalised.substring(prefix.length());
                 return "TC_" + remainder;
             }
         }
@@ -368,7 +383,7 @@ public class DashboardSection {
             float W = ConsolidatedPageCursor.PAGE_W;
             s.hLine(cs, M, W - M, 28f, ColorScheme.BORDER, 0.5f);
             s.drawText(cur.doc, cs,
-                    "Cucumber PDF Reporter v1.1.6  |  Apache PDFBox  |  Page 1 — Dashboard",
+                    "Cucumber PDF Reporter v1.2.0  |  Apache PDFBox  |  Page 1 — Dashboard",
                     M, 14f, s.regularFont(), 7f, ColorScheme.TEXT_HINT);
         }
     }
