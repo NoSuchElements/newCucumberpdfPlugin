@@ -26,7 +26,7 @@ import java.util.List;
  * │  Scenario Name                            [PASSED] 2.3s │
  * └──────────────────────────────────────────────────────────┘
  *   [Background steps, if any]
- *   [Before-hook errors]
+ *   [Before-hook errors + screenshots]
  *   ●  Given  I navigate to the homepage                10ms
  *   ●  When   I click the login button                  22ms
  *   ●  Then   I should see the dashboard                18ms
@@ -35,7 +35,8 @@ import java.util.List;
  *   [Step output logs]
  *   [Data table if present]
  *   [DocString if present]
- *   [After-hook errors]
+ *   [Step screenshots if present]
+ *   [After-hook errors + screenshots]
  * </pre>
  *
  * <p>Delegates all block rendering to {@link ContentBlockRenderer}.</p>
@@ -98,7 +99,7 @@ public class DetailedSection {
         // Leave a small gap between the header band and the first content row
         cur.advance(6f);
 
-        // Before-hook errors
+        // Before-hook errors + screenshots
         renderHookErrors(cur, sc.getBeforeHooks(), "Before hook failed");
 
         // Background steps
@@ -111,7 +112,7 @@ public class DetailedSection {
             renderStep(cur, step);
         }
 
-        // After-hook errors
+        // After-hook errors + screenshots
         renderHookErrors(cur, sc.getAfterHooks(), "After hook failed");
 
         // After-hook output logs
@@ -203,7 +204,7 @@ public class DetailedSection {
     }
 
     // -----------------------------------------------------------------------
-    // Hook errors
+    // Hook errors (+ screenshots embedded in the hook)
     // -----------------------------------------------------------------------
 
     private void renderHookErrors(ConsolidatedPageCursor cur,
@@ -211,14 +212,25 @@ public class DetailedSection {
                                    String label) throws IOException {
         for (CucumberStep hook : hooks) {
             String err = hook.getErrorMessage();
-            if (err == null || err.isEmpty()) continue;
-            cur.ensureSpace(LMD + 36f);
-            try (PDPageContentStream cs = cs(cur)) {
-                styler.drawText(cur.doc, cs, label, M, cur.y,
-                        styler.boldFont(), 8.5f, ColorScheme.FAILED_TEXT);
+            boolean hasErr  = err != null && !err.isEmpty();
+            boolean hasShot = !hook.getEmbeddings().isEmpty();
+
+            if (!hasErr && !hasShot) continue;
+
+            if (hasErr) {
+                cur.ensureSpace(LMD + 36f);
+                try (PDPageContentStream cs = cs(cur)) {
+                    styler.drawText(cur.doc, cs, label, M, cur.y,
+                            styler.boldFont(), 8.5f, ColorScheme.FAILED_TEXT);
+                }
+                cur.advance(LMD);
+                renderer.renderErrorBlock(cur, err, 8);
             }
-            cur.advance(LMD);
-            renderer.renderErrorBlock(cur, err, 8);
+
+            // Screenshots captured by the hook (e.g. after-hook failure screenshot)
+            if (hasShot) {
+                renderer.renderScreenshotGroup(cur, hook.getEmbeddings(), hasErr);
+            }
         }
     }
 
@@ -282,7 +294,7 @@ public class DetailedSection {
 
         cur.advance(nml.length > 1 ? LMD * 2f : LMD);
 
-        // Per-step content blocks
+        // Per-step content blocks (order matters: error first, then logs, table, docstring, screenshots)
         String err = step.getErrorMessage();
         if (err != null && !err.isEmpty()) {
             renderer.renderErrorBlock(cur, err, 8);
@@ -295,6 +307,10 @@ public class DetailedSection {
         }
         if (step.getDocString() != null && step.getDocString().getContent() != null) {
             renderer.renderDocString(cur, step.getDocString().getContent());
+        }
+        // Screenshots embedded by the step (e.g. Cucumber's scenario.embed())
+        if (!step.getEmbeddings().isEmpty()) {
+            renderer.renderScreenshotGroup(cur, step.getEmbeddings(), true);
         }
 
         cur.advance(4f);
