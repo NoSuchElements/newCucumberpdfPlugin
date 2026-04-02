@@ -17,7 +17,7 @@ import java.util.List;
  * Features section — one row per feature with stats and qTest/case-ID tag.
  *
  * The Case ID column uses the configured tagPrefix to locate the tag on each
- * feature, strips the prefix, and renders it as "TC_####".
+ * feature, strips the prefix (and any leading '@'), and renders it as "TC_####".
  * Features with no matching tag show "NA".
  */
 public class FeaturesSection {
@@ -158,17 +158,31 @@ public class FeaturesSection {
 
     /**
      * Extract the case-ID tag using the configured prefix and format as "TC_####".
-     * The first tag whose name starts with tagPrefix is used; the prefix is
-     * stripped and the remainder is returned as "TC_####". If nothing matches,
-     * returns "NA".
+     *
+     * Normalises both the prefix and each tag by stripping a leading '@' and
+     * doing a case-insensitive comparison, so all of the following work:
+     *   tagPrefix = "QTEST_TC_"  and tag = "@QTEST_TC_1001"  → "TC_1001"
+     *   tagPrefix = "@QTEST_TC_" and tag = "qtest_tc_5050"   → "TC_5050"
+     *
+     * Returns "NA" when no matching tag is found or tagPrefix is blank.
      */
     private String extractCaseId(CucumberFeature f) {
         if (tagPrefix == null || tagPrefix.isBlank()) {
             return "NA";
         }
+        // Normalise prefix: strip leading '@', uppercase
+        String prefix = tagPrefix.startsWith("@")
+                ? tagPrefix.substring(1).toUpperCase()
+                : tagPrefix.toUpperCase();
+
         for (String tag : f.getTags()) {
-            if (tag != null && tag.startsWith(tagPrefix)) {
-                String remainder = tag.substring(tagPrefix.length());
+            if (tag == null) continue;
+            // Normalise tag: strip leading '@', uppercase
+            String normalised = tag.startsWith("@")
+                    ? tag.substring(1).toUpperCase()
+                    : tag.toUpperCase();
+            if (normalised.startsWith(prefix)) {
+                String remainder = normalised.substring(prefix.length());
                 return "TC_" + remainder;
             }
         }
