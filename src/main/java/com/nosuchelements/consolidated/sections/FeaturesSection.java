@@ -1,6 +1,8 @@
 package com.nosuchelements.consolidated.sections;
 
 import com.nosuchelements.consolidated.ConsolidatedPageCursor;
+import com.nosuchelements.consolidated.FeatureUtils;
+import com.nosuchelements.consolidated.PluginVersion;
 import com.nosuchelements.consolidated.SectionHeader;
 import com.nosuchelements.consolidated.TableOfContents;
 import com.nosuchelements.cucumber.model.CucumberFeature;
@@ -16,9 +18,15 @@ import java.util.List;
 /**
  * Features section — one row per feature with stats and qTest/case-ID tag.
  *
- * The Case ID column uses the configured tagPrefix to locate the tag on each
- * feature, strips the prefix (and any leading '@'), and renders it as "TC_####".
- * Features with no matching tag show "NA".
+ * <h3>Fixes applied</h3>
+ * <ul>
+ *   <li><b>F4</b> – URI normalisation now correctly strips Windows-style
+ *       {@code file:///C:/} prefixes via {@link FeatureUtils#normaliseUri(String)}.</li>
+ *   <li><b>F5</b> – Footer draw order corrected: {@code hLine} drawn, then cursor
+ *       advances, then summary text drawn at the new position (no overlap).</li>
+ *   <li><b>D3</b> – {@code extractCaseId} delegated to {@link FeatureUtils}.</li>
+ *   <li><b>D4</b> – Footer uses {@link PluginVersion#FULL}.</li>
+ * </ul>
  */
 public class FeaturesSection {
 
@@ -88,7 +96,8 @@ public class FeaturesSection {
                                  CucumberFeature f,
                                  int idx, boolean alt) throws IOException {
         String st     = f.getOverallStatus();
-        String caseId = extractCaseId(f);
+        // D3 fix: use shared FeatureUtils
+        String caseId = FeatureUtils.extractCaseId(f, tagPrefix);
         long   dur    = 0;
         for (var sc : f.getActualScenarios()) dur += sc.getDurationMillis();
 
@@ -103,9 +112,10 @@ public class FeaturesSection {
             s.drawText(cur.doc, cs, str(idx), C_IDX, ry,
                     s.regularFont(), 8f, ColorScheme.TEXT_MUTED);
 
-            String nm  = trunc(safe(f.getName()), 30);
-            String uri = f.getUri() != null
-                    ? trunc(f.getUri().replace("file:", ""), 34) : "";
+            String nm = trunc(safe(f.getName()), 30);
+            // F4 fix: normalise URI via FeatureUtils
+            String uri = trunc(FeatureUtils.normaliseUri(f.getUri()), 34);
+
             s.drawText(cur.doc, cs, nm, C_NAME, ry + 4f,
                     s.boldFont(), 9f, ColorScheme.TEXT_SECONDARY);
             if (!uri.isEmpty()) {
@@ -136,57 +146,36 @@ public class FeaturesSection {
         cur.advance(ROW);
     }
 
+    /**
+     * F5 fix: draw hLine, advance cursor, THEN draw the summary text so the
+     * text is positioned correctly below the line (no overlap).
+     */
     private void drawSectionFooter(ConsolidatedPageCursor cur,
                                     List<CucumberFeature> features) throws IOException {
         int tf = features.size();
         int pf = (int) features.stream()
-                .filter(f -> "PASSED".equals(f.getOverallStatus())).count();
+                .filter(f -> "PASSED".equalsIgnoreCase(f.getOverallStatus())).count();
         int ff = (int) features.stream()
-                .filter(f -> "FAILED".equals(f.getOverallStatus())).count();
+                .filter(f -> "FAILED".equalsIgnoreCase(f.getOverallStatus())).count();
 
-        cur.ensureSpace(24f);
+        cur.ensureSpace(28f);
+        // Draw the horizontal rule at the current cursor y
         try (PDPageContentStream cs = cs(cur)) {
             s.hLine(cs, M, M + CW, cur.y, ColorScheme.BORDER, 0.5f);
-            cur.advance(6f);
-            s.drawText(cur.doc, cs,
-                    "Total: " + tf + " features  \u2014  "
-                    + pf + " passed   " + ff + " failed   " + (tf - pf - ff) + " skipped",
-                    M, cur.y - 10f, s.boldFont(), 8.5f, ColorScheme.TEXT_SECONDARY);
+        }
+        // Advance AFTER the line so the summary text lands below it
+        cur.advance(12f);
+        try (PDPageContentStream cs = cs(cur)) {
+            String summary = "Total: " + tf + " features  —  "
+                    + pf + " passed   " + ff + " failed   " + (tf - pf - ff) + " skipped";
+            s.drawText(cur.doc, cs, summary,
+                    M, cur.y,
+                    s.boldFont(), 8.5f, ColorScheme.TEXT_SECONDARY);
+            // D4: version in section footer
+            s.drawText(cur.doc, cs, PluginVersion.FULL + "  |  Features",
+                    M, 14f, s.regularFont(), 7f, ColorScheme.TEXT_HINT);
         }
         cur.advance(18f);
-    }
-
-    /**
-     * Extract the case-ID tag using the configured prefix and format as "TC_####".
-     *
-     * Normalises both the prefix and each tag by stripping a leading '@' and
-     * doing a case-insensitive comparison, so all of the following work:
-     *   tagPrefix = "QTEST_TC_"  and tag = "@QTEST_TC_1001"  → "TC_1001"
-     *   tagPrefix = "@QTEST_TC_" and tag = "qtest_tc_5050"   → "TC_5050"
-     *
-     * Returns "NA" when no matching tag is found or tagPrefix is blank.
-     */
-    private String extractCaseId(CucumberFeature f) {
-        if (tagPrefix == null || tagPrefix.isBlank()) {
-            return "NA";
-        }
-        // Normalise prefix: strip leading '@', uppercase
-        String prefix = tagPrefix.startsWith("@")
-                ? tagPrefix.substring(1).toUpperCase()
-                : tagPrefix.toUpperCase();
-
-        for (String tag : f.getTags()) {
-            if (tag == null) continue;
-            // Normalise tag: strip leading '@', uppercase
-            String normalised = tag.startsWith("@")
-                    ? tag.substring(1).toUpperCase()
-                    : tag.toUpperCase();
-            if (normalised.startsWith(prefix)) {
-                String remainder = normalised.substring(prefix.length());
-                return "TC_" + remainder;
-            }
-        }
-        return "NA";
     }
 
     private PDPageContentStream cs(ConsolidatedPageCursor cur) throws IOException {
