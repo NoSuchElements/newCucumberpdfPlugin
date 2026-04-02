@@ -19,7 +19,7 @@ import java.util.List;
 
 /**
  * Failure Summary section — shows only FAILED and SKIPPED scenarios with their
- * full step detail and error messages.
+ * full step detail, error messages, and any embedded screenshots.
  *
  * This is the most useful CI-facing section: a triage page at the top of the
  * report listing every broken scenario with enough context to diagnose the
@@ -30,20 +30,24 @@ import java.util.List;
  * the first thing a reader sees after the overview.
  *
  * Layout per failing scenario:
+ * <pre>
  *   ┌────────────────────────────────────────────────────────────┐
  *   │  Feature Name              [FAILED]   2 failures  1 skip  │
  *   │  Scenario Name                              [FAILED] 1.2s │
  *   ├────────────────────────────────────────────────────────────┤
  *   │  ● Given  I navigate to checkout               100ms      │
  *   │  ● When   I enter an expired card               400ms     │
- *   │    ┌─────────────────────────────────────────────────┐    │
+ *   │    ┌──────────────────────────────────────────────────┐    │
  *   │    │ PaymentException: Card expired               │    │
  *   │    │ at PaymentService.charge(PaymentService:88)  │    │
- *   │    └─────────────────────────────────────────────────┘    │
+ *   │    └──────────────────────────────────────────────────┘    │
+ *   │    [screenshot if embedded by the failing step]       │
  *   │  ○ Then   I see the declined message            skipped   │
+ *   │    [after-hook screenshot if present]                  │
  *   └────────────────────────────────────────────────────────────┘
+ * </pre>
  *
- * If all scenarios passed, a green "All scenarios passed" banner is shown
+ * If all scenarios passed, a green “All scenarios passed” banner is shown
  * instead of an empty section.
  */
 public class FailureSummarySection {
@@ -213,17 +217,22 @@ public class FailureSummarySection {
     }
 
     // -----------------------------------------------------------------------
-    // Step listing — show all steps; expand errors for failed ones only
+    // Step listing — show all steps; expand errors and screenshots for failures
     // -----------------------------------------------------------------------
 
     private void drawFailingSteps(ConsolidatedPageCursor cur,
                                    CucumberScenario sc) throws IOException {
-        // Before-hook errors
+        // Before-hook errors + screenshots
         for (CucumberStep hook : sc.getBeforeHooks()) {
             String err = hook.getErrorMessage();
-            if (err != null && !err.isEmpty()) {
+            boolean hasErr  = err != null && !err.isEmpty();
+            boolean hasShot = !hook.getEmbeddings().isEmpty();
+            if (hasErr) {
                 drawHookErrorLabel(cur, "Before hook failed");
                 renderer.renderErrorBlock(cur, err, 6);
+            }
+            if (hasShot) {
+                renderer.renderScreenshotGroup(cur, hook.getEmbeddings(), hasErr);
             }
         }
 
@@ -238,14 +247,25 @@ public class FailureSummarySection {
             if (!step.getOutputLines().isEmpty() && "failed".equalsIgnoreCase(step.getStatus())) {
                 renderer.renderLogs(cur, step.getOutputLines(), null);
             }
+            // Screenshots embedded on the step (e.g. Cucumber's scenario.embed())
+            if (!step.getEmbeddings().isEmpty()) {
+                renderer.renderScreenshotGroup(cur, step.getEmbeddings(), true);
+            }
         }
 
-        // After-hook errors
+        // After-hook errors + screenshots
         for (CucumberStep hook : sc.getAfterHooks()) {
             String err = hook.getErrorMessage();
-            if (err != null && !err.isEmpty()) {
+            boolean hasErr  = err != null && !err.isEmpty();
+            boolean hasShot = !hook.getEmbeddings().isEmpty();
+            if (hasErr) {
                 drawHookErrorLabel(cur, "After hook failed");
                 renderer.renderErrorBlock(cur, err, 6);
+            }
+            if (hasShot) {
+                // After-hook screenshots are the most common case (Selenium failure shots)
+                // Always show the label so the reader knows it’s a hook screenshot
+                renderer.renderScreenshotGroup(cur, hook.getEmbeddings(), hasErr);
             }
         }
     }
