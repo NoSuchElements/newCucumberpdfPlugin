@@ -1,6 +1,7 @@
 package com.nosuchelements.consolidated.sections;
 
 import com.nosuchelements.consolidated.ConsolidatedPageCursor;
+import com.nosuchelements.consolidated.PluginVersion;
 import com.nosuchelements.consolidated.SectionHeader;
 import com.nosuchelements.consolidated.TableOfContents;
 import com.nosuchelements.cucumber.model.CucumberFeature;
@@ -17,7 +18,16 @@ import java.util.List;
 /**
  * Scenarios section — all scenarios across all features, grouped by feature.
  *
- * Columns: # | Scenario Name | Tags (first 2) | Status | Steps | Progress | Duration
+ * <h3>Fixes applied</h3>
+ * <ul>
+ *   <li><b>S1</b> – Tag truncation now applied <em>per-tag</em> inside
+ *       {@link #buildTagLine} before the overflow-count suffix is appended,
+ *       so the "+N" suffix is never silently clipped.</li>
+ *   <li><b>S2</b> – For Scenario Outline examples, the tags column shows
+ *       "—" instead of repeating the identical parent-outline tag list on
+ *       every example row, reducing visual noise.</li>
+ *   <li><b>D4</b> – Section footer uses {@link PluginVersion#FULL}.</li>
+ * </ul>
  */
 public class ScenariosSection {
 
@@ -26,6 +36,9 @@ public class ScenariosSection {
     private static final float FHDR = 18f;
     private static final float CHDR = 17f;
     private static final float ROW  = 18f;
+
+    /** Maximum characters shown for a single tag in the Tags column. */
+    private static final int MAX_TAG_CHARS = 16;
 
     private static final float C_IDX  = M + 6f;
     private static final float C_NAME = M + 24f;
@@ -65,13 +78,18 @@ public class ScenariosSection {
 
             boolean alt = false;
             int idx = 1;
+            // S2: track the previous scenario's tag line to detect outline examples
+            String prevTagLine = null;
             for (CucumberScenario sc : scenarios) {
                 cur.ensureSpace(ROW + 2f);
-                drawScenarioRow(cur, sc, idx++, alt);
+                drawScenarioRow(cur, sc, idx++, alt, prevTagLine);
+                prevTagLine = buildTagLine(sc.getTags());
                 alt = !alt;
             }
             cur.advance(8f);
         }
+
+        drawSectionFooter(cur);
     }
 
     private void drawFeatureSubHeader(ConsolidatedPageCursor cur,
@@ -79,7 +97,6 @@ public class ScenariosSection {
                                        int scenCount) throws IOException {
         String name = trunc(safe(feature.getName()), 55);
         String st   = feature.getOverallStatus();
-
         try (PDPageContentStream cs = cs(cur)) {
             s.fillRect(cs, M, cur.y - FHDR, CW, FHDR, ColorScheme.bgForStatus(st));
             s.fillRect(cs, M, cur.y - FHDR, 4f, FHDR, ColorScheme.forStatus(st));
@@ -112,61 +129,84 @@ public class ScenariosSection {
 
     private void drawScenarioRow(ConsolidatedPageCursor cur,
                                   CucumberScenario sc,
-                                  int idx, boolean alt) throws IOException {
+                                  int idx, boolean alt,
+                                  String prevTagLine) throws IOException {
         String st      = sc.getStatus();
+        // S2: show "—" for example rows that share the same tags as the outline above
         String tagLine = buildTagLine(sc.getTags());
+        String tagDisplay = tagLine.equals(prevTagLine) && prevTagLine != null && !prevTagLine.isEmpty()
+                ? "—" : tagLine;
 
         try (PDPageContentStream cs = cs(cur)) {
             float bgY = cur.y - ROW;
             s.fillRect(cs, M, bgY, CW, ROW,
                     alt ? ColorScheme.ROW_ALT : ColorScheme.CARD_BG);
-
             float ry = cur.y - ROW + 4f;
-
-            // Status dot
             s.dot(cs, M + 8f, ry + 5f, 3f, ColorScheme.forStatus(st));
-            // Index
             s.drawText(cur.doc, cs, str(idx), C_IDX, ry,
                     s.regularFont(), 7.5f, ColorScheme.TEXT_MUTED);
-            // Scenario name
             s.drawText(cur.doc, cs, trunc(safe(sc.getName()), 30),
                     C_NAME, ry, s.regularFont(), 9f, ColorScheme.TEXT_SECONDARY);
-            // Tags (italic, muted)
-            if (!tagLine.isEmpty()) {
-                s.drawText(cur.doc, cs, trunc(tagLine, 20),
+            if (!tagDisplay.isEmpty()) {
+                s.drawText(cur.doc, cs, tagDisplay,
                         C_TAGS, ry, s.italicFont(), 7.5f, ColorScheme.TEXT_MUTED);
             }
-            // Status
             s.drawText(cur.doc, cs, st, C_ST, ry,
                     s.boldFont(), 8f, ColorScheme.textForStatus(st));
-            // Steps fraction
             s.drawText(cur.doc, cs,
                     sc.getPassedSteps() + "/" + sc.getTotalSteps(),
                     C_STEP, ry, s.regularFont(), 8f, ColorScheme.TEXT_SECONDARY);
-            // Mini progress bar
             s.drawProgressBar(cs, C_BAR, ry, CW * 0.13f, 5f,
                     sc.getPassedSteps(), sc.getFailedSteps(), sc.getSkippedSteps());
-            // Duration
             s.drawText(cur.doc, cs, sc.formatDuration(),
                     C_TIME, ry, s.regularFont(), 8f, ColorScheme.TEXT_MUTED);
-            // Divider
             s.hLine(cs, M, M + CW, bgY, ColorScheme.BORDER_SUBTLE, 0.3f);
         }
         cur.advance(ROW);
     }
 
+    private void drawSectionFooter(ConsolidatedPageCursor cur) throws IOException {
+        try (PDPageContentStream cs = cs(cur)) {
+            styler_hline(cur, cs);
+            cur.advance(6f);
+        }
+        try (PDPageContentStream cs = cs(cur)) {
+            s.drawText(cur.doc, cs,
+                    PluginVersion.FULL + "  |  Scenarios",
+                    M, 14f, s.regularFont(), 7f, ColorScheme.TEXT_HINT);
+        }
+    }
+
+    private void styler_hline(ConsolidatedPageCursor cur, PDPageContentStream cs) throws IOException {
+        s.hLine(cs, M, M + CW, cur.y, ColorScheme.BORDER, 0.4f);
+    }
+
     /**
-     * Build a compact tag display string from up to 2 tags, stripping the "@" prefix.
-     * E.g. "@smoke @regression" -> "smoke  regression"
+     * Build a compact tag display string.
+     *
+     * <p>S1 fix: each individual tag is truncated to {@value #MAX_TAG_CHARS} chars
+     * before assembly, so the "+N more" overflow suffix is never cut off.</p>
+     *
+     * @param tags raw tag list (may include leading {@code @})
+     * @return display string, e.g. {@code "smoke  regression  +2"}
      */
-    private static String buildTagLine(List<String> tags) {
+    static String buildTagLine(List<String> tags) {
         if (tags == null || tags.isEmpty()) return "";
+        final int limit = 2;
         StringBuilder sb = new StringBuilder();
         int shown = 0;
         for (String tag : tags) {
-            if (shown >= 2) { sb.append(" +").append(tags.size() - 2); break; }
+            if (shown >= limit) {
+                sb.append(" +").append(tags.size() - limit);
+                break;
+            }
             if (sb.length() > 0) sb.append("  ");
-            sb.append(tag.startsWith("@") ? tag.substring(1) : tag);
+            // S1 fix: truncate per-tag before adding to the assembled line
+            String display = tag.startsWith("@") ? tag.substring(1) : tag;
+            if (display.length() > MAX_TAG_CHARS) {
+                display = display.substring(0, MAX_TAG_CHARS - 2) + "..";
+            }
+            sb.append(display);
             shown++;
         }
         return sb.toString();
