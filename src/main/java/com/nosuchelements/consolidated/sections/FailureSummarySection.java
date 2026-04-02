@@ -2,6 +2,7 @@ package com.nosuchelements.consolidated.sections;
 
 import com.nosuchelements.consolidated.ContentBlockRenderer;
 import com.nosuchelements.consolidated.ConsolidatedPageCursor;
+import com.nosuchelements.consolidated.PluginVersion;
 import com.nosuchelements.consolidated.SectionHeader;
 import com.nosuchelements.consolidated.TableOfContents;
 import com.nosuchelements.cucumber.model.CucumberFeature;
@@ -21,43 +22,25 @@ import java.util.List;
  * Failure Summary section — shows only FAILED and SKIPPED scenarios with their
  * full step detail, error messages, and any embedded screenshots.
  *
- * This is the most useful CI-facing section: a triage page at the top of the
- * report listing every broken scenario with enough context to diagnose the
- * failure without scrolling through the full Detailed section.
- *
- * Activated by {@code displayFailureSummary=true} in the Mojo configuration.
- * Placed as the second section in the report (right after Dashboard) so it is
- * the first thing a reader sees after the overview.
- *
- * Layout per failing scenario:
- * <pre>
- *   ┌────────────────────────────────────────────────────────────┐
- *   │  Feature Name              [FAILED]   2 failures  1 skip  │
- *   │  Scenario Name                              [FAILED] 1.2s │
- *   ├────────────────────────────────────────────────────────────┤
- *   │  ● Given  I navigate to checkout               100ms      │
- *   │  ● When   I enter an expired card               400ms     │
- *   │    ┌──────────────────────────────────────────────────┐    │
- *   │    │ PaymentException: Card expired               │    │
- *   │    │ at PaymentService.charge(PaymentService:88)  │    │
- *   │    └──────────────────────────────────────────────────┘    │
- *   │    [screenshot if embedded by the failing step]       │
- *   │  ○ Then   I see the declined message            skipped   │
- *   │    [after-hook screenshot if present]                  │
- *   └────────────────────────────────────────────────────────────┘
- * </pre>
- *
- * If all scenarios passed, a green “All scenarios passed” banner is shown
- * instead of an empty section.
+ * <h3>Fixes applied</h3>
+ * <ul>
+ *   <li><b>F1</b> – SKIPPED step screenshots no longer rendered; guard added so
+ *       embeddings are only shown when the step actually failed.</li>
+ *   <li><b>F2</b> – Section subtitle now accurately reflects failing vs skipped
+ *       counts: e.g. "3 failing / 2 skipped" instead of always "N failing".</li>
+ *   <li><b>F3</b> – Duration shown on <em>all</em> step lines (not just passed);
+ *       failed/skipped steps now show both a coloured status label and the
+ *       duration, giving triage context.</li>
+ *   <li><b>D4</b> – Footer uses {@link PluginVersion#FULL} constant.</li>
+ * </ul>
  */
 public class FailureSummarySection {
 
     private static final float M    = ConsolidatedPageCursor.MARGIN_H;
     private static final float CW   = ConsolidatedPageCursor.CONTENT_W;
-    private static final float FHDR = 20f;   // feature group header
-    private static final float SHDR = 34f;   // scenario header band
+    private static final float FHDR = 20f;
+    private static final float SHDR = 34f;
     private static final float LMD  = 15f;
-    private static final float LSM  = 11f;
 
     private final PdfStyler            styler;
     private final ContentBlockRenderer renderer;
@@ -73,24 +56,30 @@ public class FailureSummarySection {
                       List<CucumberFeature> features,
                       TableOfContents toc) throws IOException {
 
-        // Collect only FAILED and SKIPPED scenarios, grouped by feature
         List<FeatureFailures> groups = collectFailures(features);
-        int totalFailures = groups.stream()
-                .mapToInt(g -> g.scenarios.size()).sum();
+        long totalFailed  = groups.stream().flatMap(g -> g.scenarios.stream())
+                .filter(s -> "FAILED".equalsIgnoreCase(s.getStatus())).count();
+        long totalSkipped = groups.stream().flatMap(g -> g.scenarios.stream())
+                .filter(s -> "SKIPPED".equalsIgnoreCase(s.getStatus())).count();
+        int totalBad = (int)(totalFailed + totalSkipped);
 
         ConsolidatedPageCursor cur = new ConsolidatedPageCursor(
                 doc, firstPage, styler, "Failure Summary");
 
         toc.add("Failure Summary", cur.currentPageIndex());
 
-        SectionHeader.draw(cur, styler,
-                "Failure Summary",
-                totalFailures == 0
-                        ? "all scenarios passed"
-                        : totalFailures + " failing scenario" + (totalFailures == 1 ? "" : "s"),
-                ColorScheme.FAILED);
+        // F2 fix: accurate subtitle
+        String subtitle;
+        if (totalBad == 0) {
+            subtitle = "all scenarios passed";
+        } else {
+            subtitle = totalFailed + " failing";
+            if (totalSkipped > 0) subtitle += "  /  " + totalSkipped + " skipped";
+        }
 
-        if (totalFailures == 0) {
+        SectionHeader.draw(cur, styler, "Failure Summary", subtitle, ColorScheme.FAILED);
+
+        if (totalBad == 0) {
             drawAllPassedBanner(cur);
             return;
         }
@@ -100,13 +89,14 @@ public class FailureSummarySection {
             for (CucumberScenario sc : group.scenarios) {
                 cur.ensureSpace(SHDR + LMD * 2);
                 drawFailingScenarioHeader(cur, sc);
-                // Add a small gap between the scenario header band and the first step
                 cur.advance(6f);
                 drawFailingSteps(cur, sc);
                 cur.advance(10f);
             }
             cur.advance(6f);
         }
+
+        drawSectionFooter(cur);
     }
 
     // -----------------------------------------------------------------------
@@ -119,13 +109,11 @@ public class FailureSummarySection {
             List<CucumberScenario> bad = new ArrayList<>();
             for (CucumberScenario sc : feature.getActualScenarios()) {
                 String st = sc.getStatus();
-                if ("FAILED".equals(st) || "SKIPPED".equals(st)) {
+                if ("FAILED".equalsIgnoreCase(st) || "SKIPPED".equalsIgnoreCase(st)) {
                     bad.add(sc);
                 }
             }
-            if (!bad.isEmpty()) {
-                groups.add(new FeatureFailures(feature, bad));
-            }
+            if (!bad.isEmpty()) groups.add(new FeatureFailures(feature, bad));
         }
         return groups;
     }
@@ -158,21 +146,19 @@ public class FailureSummarySection {
                                          FeatureFailures group) throws IOException {
         cur.ensureSpace(FHDR + SHDR + LMD * 2);
         long failed  = group.scenarios.stream()
-                .filter(s -> "FAILED".equals(s.getStatus())).count();
+                .filter(s -> "FAILED".equalsIgnoreCase(s.getStatus())).count();
         long skipped = group.scenarios.stream()
-                .filter(s -> "SKIPPED".equals(s.getStatus())).count();
+                .filter(s -> "SKIPPED".equalsIgnoreCase(s.getStatus())).count();
 
         try (PDPageContentStream cs = cs(cur)) {
             styler.fillRect(cs, M, cur.y - FHDR, CW, FHDR, ColorScheme.FAILED_BG);
             styler.fillRect(cs, M, cur.y - FHDR, 4f, FHDR, ColorScheme.FAILED);
             styler.strokeRect(cs, M, cur.y - FHDR, CW, FHDR, ColorScheme.BORDER, 0.4f);
-
             float fy = cur.y - FHDR + 5f;
             styler.drawText(cur.doc, cs,
                     trunc(safe(group.feature.getName()), 52),
                     M + 12f, fy, styler.boldFont(), 9.5f, ColorScheme.TEXT_PRIMARY);
-
-            // Right-side counts
+            // F2 fix: show counts per group too
             String counts = failed + " failed";
             if (skipped > 0) counts += "   " + skipped + " skipped";
             styler.drawText(cur.doc, cs, counts,
@@ -194,20 +180,17 @@ public class FailureSummarySection {
         try (PDPageContentStream cs = cs(cur)) {
             styler.fillRect(cs, M, cur.y - SHDR, CW, SHDR, ColorScheme.HEADER);
             styler.fillRect(cs, M, cur.y - SHDR, CW, 3f, ColorScheme.forStatus(st));
-
             styler.drawText(cur.doc, cs, "Scenario",
                     M + 8f, cur.y - 11f,
                     styler.regularFont(), 7f, ColorScheme.TEXT_HINT);
             styler.drawText(cur.doc, cs, name,
                     M + 8f, cur.y - 26f,
                     styler.boldFont(), 11f, ColorScheme.TEXT_WHITE);
-
             float bW = 66f, bH = 17f;
             float bX = M + CW - bW, bMid = cur.y - SHDR + SHDR / 2f;
             styler.fillRect(cs, bX, bMid - bH / 2f, bW, bH, ColorScheme.forStatus(st));
             styler.drawText(cur.doc, cs, st,
                     bX + 6f, bMid - 4f, styler.boldFont(), 8.5f, ColorScheme.TEXT_WHITE);
-
             String dur = sc.formatDuration();
             styler.drawText(cur.doc, cs, dur,
                     bX - dur.length() * 5.2f - 8f, bMid - 4f,
@@ -217,19 +200,18 @@ public class FailureSummarySection {
     }
 
     // -----------------------------------------------------------------------
-    // Step listing — show all steps; expand errors and screenshots for failures
+    // Step listing
     // -----------------------------------------------------------------------
 
     private void drawFailingSteps(ConsolidatedPageCursor cur,
                                    CucumberScenario sc) throws IOException {
-        // Before-hook errors + screenshots
         for (CucumberStep hook : sc.getBeforeHooks()) {
             String err = hook.getErrorMessage();
             boolean hasErr  = err != null && !err.isEmpty();
             boolean hasShot = !hook.getEmbeddings().isEmpty();
             if (hasErr) {
                 drawHookErrorLabel(cur, "Before hook failed");
-                renderer.renderErrorBlock(cur, err, 6);
+                renderer.renderErrorBlock(cur, err, -1);
             }
             if (hasShot) {
                 renderer.renderScreenshotGroup(cur, hook.getEmbeddings(), hasErr);
@@ -238,33 +220,29 @@ public class FailureSummarySection {
 
         for (CucumberStep step : sc.getSteps()) {
             drawStepLine(cur, step);
-            // Expand error for failed steps — this is the money line for triage
             String err = step.getErrorMessage();
             if (err != null && !err.isEmpty()) {
-                renderer.renderErrorBlock(cur, err, 10);
+                renderer.renderErrorBlock(cur, err, -1);
             }
-            // Show output logs on failing step too
+            // Show output logs only on failed steps
             if (!step.getOutputLines().isEmpty() && "failed".equalsIgnoreCase(step.getStatus())) {
                 renderer.renderLogs(cur, step.getOutputLines(), null);
             }
-            // Screenshots embedded on the step (e.g. Cucumber's scenario.embed())
-            if (!step.getEmbeddings().isEmpty()) {
+            // F1 fix: only render screenshots for actually-failed steps
+            if (!step.getEmbeddings().isEmpty() && "failed".equalsIgnoreCase(step.getStatus())) {
                 renderer.renderScreenshotGroup(cur, step.getEmbeddings(), true);
             }
         }
 
-        // After-hook errors + screenshots
         for (CucumberStep hook : sc.getAfterHooks()) {
             String err = hook.getErrorMessage();
             boolean hasErr  = err != null && !err.isEmpty();
             boolean hasShot = !hook.getEmbeddings().isEmpty();
             if (hasErr) {
                 drawHookErrorLabel(cur, "After hook failed");
-                renderer.renderErrorBlock(cur, err, 6);
+                renderer.renderErrorBlock(cur, err, -1);
             }
             if (hasShot) {
-                // After-hook screenshots are the most common case (Selenium failure shots)
-                // Always show the label so the reader knows it’s a hook screenshot
                 renderer.renderScreenshotGroup(cur, hook.getEmbeddings(), hasErr);
             }
         }
@@ -309,17 +287,18 @@ public class FailureSummarySection {
                             styler.regularFont(), 9.5f, ColorScheme.TEXT_SECONDARY);
             }
 
-            // Status label for non-passed steps (skip "passed" to reduce noise)
+            // F3 fix: always show duration; add status label for non-passed steps
+            String ds = dur + "ms";
+            float durX = W - M - ds.length() * 5f;
             if (!"passed".equalsIgnoreCase(st)) {
-                styler.drawText(cur.doc, cs, st.toLowerCase(),
-                        W - M - st.length() * 5f - 6f, y,
+                // Status label to the left of duration
+                String stLabel = st.toLowerCase();
+                float stX = durX - stLabel.length() * 5f - 8f;
+                styler.drawText(cur.doc, cs, stLabel, stX, y,
                         styler.boldFont(), 7.5f, ColorScheme.textForStatus(st));
-            } else {
-                String ds = dur + "ms";
-                styler.drawText(cur.doc, cs, ds,
-                        W - M - ds.length() * 5f, y,
-                        styler.regularFont(), 7.5f, ColorScheme.TEXT_HINT);
             }
+            styler.drawText(cur.doc, cs, ds, durX, y,
+                    styler.regularFont(), 7.5f, ColorScheme.TEXT_HINT);
 
             styler.hLine(cs, M, W - M, y - 5f, ColorScheme.BORDER_SUBTLE, 0.3f);
         }
@@ -337,12 +316,27 @@ public class FailureSummarySection {
     }
 
     // -----------------------------------------------------------------------
+    // Section footer
+    // -----------------------------------------------------------------------
+
+    private void drawSectionFooter(ConsolidatedPageCursor cur) throws IOException {
+        try (PDPageContentStream cs = new PDPageContentStream(
+                cur.doc, cur.page, PDPageContentStream.AppendMode.APPEND, true)) {
+            float W = ConsolidatedPageCursor.PAGE_W;
+            styler.hLine(cs, M, W - M, 28f, ColorScheme.BORDER, 0.4f);
+            styler.drawText(cur.doc, cs,
+                    PluginVersion.FULL + "  |  Failure Summary",
+                    M, 14f, styler.regularFont(), 7f, ColorScheme.TEXT_HINT);
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Data holder
     // -----------------------------------------------------------------------
 
     private static class FeatureFailures {
-        final CucumberFeature          feature;
-        final List<CucumberScenario>   scenarios;
+        final CucumberFeature        feature;
+        final List<CucumberScenario> scenarios;
         FeatureFailures(CucumberFeature f, List<CucumberScenario> s) {
             this.feature   = f;
             this.scenarios = s;
