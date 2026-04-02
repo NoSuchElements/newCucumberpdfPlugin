@@ -39,8 +39,8 @@ public class CucumberScenario {
         if (anyFailed) return "FAILED";
         boolean anySkipped = steps.stream().anyMatch(s ->
                 "skipped".equalsIgnoreCase(s.getStatus())
-                || "undefined".equalsIgnoreCase(s.getStatus())
-                || "pending".equalsIgnoreCase(s.getStatus()));
+                        || "undefined".equalsIgnoreCase(s.getStatus())
+                        || "pending".equalsIgnoreCase(s.getStatus()));
         if (anySkipped) return "SKIPPED";
         return "PASSED";
     }
@@ -64,7 +64,7 @@ public class CucumberScenario {
     public int getSkippedSteps() {
         return (int) steps.stream()
                 .filter(s -> !"passed".equalsIgnoreCase(s.getStatus())
-                          && !"failed".equalsIgnoreCase(s.getStatus())).count();
+                        && !"failed".equalsIgnoreCase(s.getStatus())).count();
     }
 
     // -----------------------------------------------------------------------
@@ -92,10 +92,14 @@ public class CucumberScenario {
 
     /**
      * Returns all base64 screenshot strings from step embeddings and
-     * after-hook embeddings. PNG and JPEG mime types are included.
+     * hook embeddings in source order: before-hooks, steps, after-hooks.
+     * PNG and JPEG mime types are included.
      */
     public List<String> getAllScreenshots() {
         List<String> shots = new ArrayList<>();
+        for (CucumberStep hook : beforeHooks) {
+            shots.addAll(hook.getEmbeddings());
+        }
         for (CucumberStep step : steps) {
             shots.addAll(step.getEmbeddings());
         }
