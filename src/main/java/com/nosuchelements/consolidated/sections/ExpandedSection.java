@@ -2,12 +2,10 @@ package com.nosuchelements.consolidated.sections;
 
 import com.nosuchelements.consolidated.ContentBlockRenderer;
 import com.nosuchelements.consolidated.ConsolidatedPageCursor;
-import com.nosuchelements.consolidated.PluginVersion;
 import com.nosuchelements.consolidated.SectionHeader;
 import com.nosuchelements.consolidated.TableOfContents;
 import com.nosuchelements.cucumber.model.CucumberFeature;
 import com.nosuchelements.cucumber.model.CucumberScenario;
-import com.nosuchelements.cucumber.model.CucumberStep;
 import com.nosuchelements.pdf.ColorScheme;
 import com.nosuchelements.pdf.PdfStyler;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -18,38 +16,34 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * Expanded section — full step-by-step breakdown identical to Detailed but
- * with per-scenario background sections shown inline.
+ * Expanded section — screenshots and full attachments, one group per scenario.
  *
- * <h3>Fixes applied</h3>
- * <ul>
- *   <li><b>E1</b> – Screenshots are now shown for <em>all</em> steps
- *       (not only failed ones), which is the intended behaviour in expanded mode
- *       since operators want to see the browser state at each step.</li>
- *   <li><b>E2</b> – DataTable and DocString attachments are now rendered below
- *       each step, matching the output of the Detailed section.</li>
- *   <li><b>CC1/CC2</b> – Shared {@link ContentBlockRenderer} used; all
- *       {@code renderErrorBlock} calls pass {@code -1} to respect configured
- *       {@code maxOutputLines} rather than a hardcoded 20.</li>
- *   <li><b>D4</b> – Footer uses {@link PluginVersion#FULL}.</li>
- *   <li><b>SP-6</b> – Post-step trailing gap increased from {@code 4f} to
- *       {@code 8f} to match DetailedSection, giving a clear visual break
- *       between a step's last content block and the next step's bullet.</li>
- * </ul>
+ * <p>Only included when {@code displayExpanded=true} in the Mojo configuration.
+ * Delegates all image rendering to {@link ContentBlockRenderer}.</p>
+ *
+ * <h3>Layout per scenario that has screenshots</h3>
+ * <pre>
+ * ┌──────────────────────────────────────────────────────────────┐
+ * │  Feature Name  (breadcrumb)                [PASSED badge]   │
+ * │  Scenario Name                                              │
+ * └──────────────────────────────────────────────────────────────┘
+ *   Screenshots
+ *   ┌────────────────────────────────────────────────────────┐
+ *   │  [image 1 — full width, up to 490×310pt]               │
+ *   └────────────────────────────────────────────────────────┘
+ *   ┌────────────────────────────────────────────────────────┐
+ *   │  [image 2]                                             │
+ *   └────────────────────────────────────────────────────────┘
+ * </pre>
+ *
+ * <p>Scenarios with no screenshots are silently skipped. If the entire
+ * run has no screenshots a placeholder message is shown.</p>
  */
 public class ExpandedSection {
 
     private static final float M    = ConsolidatedPageCursor.MARGIN_H;
     private static final float CW   = ConsolidatedPageCursor.CONTENT_W;
-    private static final float SHDR = 38f;
-    private static final float LMD  = 15f;
-    private static final float DUR_CHAR_W = 5.0f;
-
-    /**
-     * SP-6: trailing gap after the last content block of a step.
-     * Increased from 4f → 8f, matching DetailedSection.
-     */
-    private static final float STEP_TRAIL_GAP = 8f;
+    private static final float SHDR = 30f;
 
     private final PdfStyler            styler;
     private final ContentBlockRenderer renderer;
@@ -60,225 +54,91 @@ public class ExpandedSection {
     }
 
     // -----------------------------------------------------------------------
+    // Entry point
+    // -----------------------------------------------------------------------
 
     public void build(PDDocument doc, PDPage firstPage,
                       List<CucumberFeature> features,
                       TableOfContents toc) throws IOException {
 
         ConsolidatedPageCursor cur = new ConsolidatedPageCursor(
-                doc, firstPage, styler, "Expanded Steps");
+                doc, firstPage, styler, "Expanded");
 
         toc.add("Expanded", cur.currentPageIndex());
 
         SectionHeader.draw(cur, styler,
-                "Expanded Steps", null, ColorScheme.ACCENT);
+                "Expanded — Screenshots & Attachments", null,
+                ColorScheme.PENDING);
+
+        boolean anyScreenshots = false;
 
         for (CucumberFeature feature : features) {
-            for (CucumberScenario scenario : feature.getActualScenarios()) {
-                renderScenario(cur, feature, scenario);
-                cur.advance(14f);
+            for (CucumberScenario sc : feature.getActualScenarios()) {
+                List<String> shots = sc.getAllScreenshots();
+                if (shots.isEmpty()) continue;
+
+                anyScreenshots = true;
+                cur.ensureSpace(SHDR + 60f);   // header + at least one thumbnail
+                drawScenarioHeader(cur, feature, sc);
+                renderer.renderScreenshotGroup(cur, shots, true);
+                cur.advance(12f);
             }
+        }
+
+        if (!anyScreenshots) {
+            cur.ensureSpace(40f);
+            try (PDPageContentStream cs = cs(cur)) {
+                styler.drawText(cur.doc, cs,
+                        "No screenshots were captured in this test run.",
+                        M, cur.y, styler.regularFont(), 11f, ColorScheme.TEXT_MUTED);
+            }
+            cur.advance(20f);
         }
 
         drawSectionFooter(cur);
     }
 
     // -----------------------------------------------------------------------
-
-    private void renderScenario(ConsolidatedPageCursor cur,
-                                 CucumberFeature feature,
-                                 CucumberScenario sc) throws IOException {
-        cur.ensureSpace(SHDR + LMD * 3);
-        drawScenarioHeader(cur, feature, sc);
-        cur.advance(6f);
-
-        renderHookBlock(cur, sc.getBeforeHooks(), "Before hook failed");
-
-        if (sc.hasBackground()) {
-            renderBackgroundBlock(cur, sc.getBackgroundSteps());
-        }
-
-        for (CucumberStep step : sc.getSteps()) {
-            renderStep(cur, step);
-        }
-
-        renderHookBlock(cur, sc.getAfterHooks(), "After hook failed");
-    }
-
+    // Scenario sub-header
     // -----------------------------------------------------------------------
 
     private void drawScenarioHeader(ConsolidatedPageCursor cur,
                                      CucumberFeature feature,
                                      CucumberScenario sc) throws IOException {
-        String st       = sc.getStatus();
-        String featName = trunc(safe(feature.getName()), 65);
-        String scenName = trunc(safe(sc.getName()), 68);
-        float  W        = ConsolidatedPageCursor.PAGE_W;
+        String st   = sc.getStatus();
+        String feat = trunc(safe(feature.getName()), 60);
+        String name = trunc(safe(sc.getName()), 70);
 
         try (PDPageContentStream cs = cs(cur)) {
-            styler.fillRect(cs, M, cur.y - SHDR, CW, SHDR, ColorScheme.HEADER);
-            styler.fillRect(cs, M, cur.y - SHDR, CW, 3f, ColorScheme.forStatus(st));
-            styler.drawText(cur.doc, cs, featName,
-                    M + 8f, cur.y - 11f,
-                    styler.regularFont(), 7f, ColorScheme.TEXT_HINT);
-            styler.drawText(cur.doc, cs, scenName,
-                    M + 8f, cur.y - 26f,
-                    styler.boldFont(), 11f, ColorScheme.TEXT_WHITE);
+            // Card background with left status stripe
+            styler.fillRect(cs, M, cur.y - SHDR, CW, SHDR, ColorScheme.bgForStatus(st));
+            styler.fillRect(cs, M, cur.y - SHDR, 3.5f, SHDR, ColorScheme.forStatus(st));
+            styler.strokeRect(cs, M, cur.y - SHDR, CW, SHDR, ColorScheme.BORDER, 0.4f);
 
-            float bW = 66f, bH = 17f;
-            float bX = M + CW - bW, bMid = cur.y - SHDR + SHDR / 2f;
-            styler.fillRect(cs, bX, bMid - bH / 2f, bW, bH, ColorScheme.forStatus(st));
+            float fy = cur.y - SHDR + 8f;
+            // Feature breadcrumb
+            styler.drawText(cur.doc, cs, feat,
+                    M + 12f, fy + 11f,
+                    styler.regularFont(), 7f, ColorScheme.TEXT_MUTED);
+            // Scenario name
+            styler.drawText(cur.doc, cs, name,
+                    M + 12f, fy,
+                    styler.boldFont(), 10f, ColorScheme.TEXT_PRIMARY);
+
+            // Status badge (right)
+            float bW = 66f, bH = 16f;
+            float bX = M + CW - bW;
+            styler.fillRect(cs, bX, fy, bW, bH, ColorScheme.forStatus(st));
             styler.drawText(cur.doc, cs, st,
-                    bX + 6f, bMid - 4f, styler.boldFont(), 8.5f, ColorScheme.TEXT_WHITE);
-
-            String dur = sc.formatDuration();
-            float durW = dur.length() * DUR_CHAR_W;
-            styler.drawText(cur.doc, cs, dur,
-                    bX - durW - 8f, bMid - 4f,
-                    styler.regularFont(), 8f, ColorScheme.TEXT_HINT);
+                    bX + 7f, fy + 4f,
+                    styler.boldFont(), 8f, ColorScheme.TEXT_WHITE);
         }
-        cur.advance(SHDR + 5f);
+        cur.advance(SHDR + 6f);
     }
 
     // -----------------------------------------------------------------------
-
-    private void renderBackgroundBlock(ConsolidatedPageCursor cur,
-                                        List<CucumberStep> steps) throws IOException {
-        cur.ensureSpace(LMD + steps.size() * LMD + 10f);
-        try (PDPageContentStream cs = cs(cur)) {
-            styler.drawText(cur.doc, cs, "Background",
-                    M, cur.y, styler.boldFont(), 8f, ColorScheme.TEXT_HINT);
-        }
-        cur.advance(LMD);
-        for (CucumberStep step : steps) {
-            cur.ensureSpace(LMD);
-            String kw = safe(step.getKeyword());
-            String nm = safe(step.getName());
-            try (PDPageContentStream cs = cs(cur)) {
-                styler.fillRect(cs, M + 3f, cur.y + 1f, 5f, 5f, ColorScheme.TEXT_HINT);
-                styler.drawText(cur.doc, cs, kw, M + 14f, cur.y,
-                        styler.boldFont(), 8.5f, ColorScheme.TEXT_HINT);
-                float nx = M + 14f + kw.length() * 5f;
-                styler.drawText(cur.doc, cs, trunc(nm, 90), nx, cur.y,
-                        styler.regularFont(), 8.5f, ColorScheme.TEXT_HINT);
-            }
-            cur.advance(LMD);
-
-            String err = step.getErrorMessage();
-            if (err != null && !err.isEmpty()) {
-                try (PDPageContentStream cs = cs(cur)) {
-                    styler.drawText(cur.doc, cs, "Background step failed",
-                            M, cur.y, styler.boldFont(), 8f, ColorScheme.FAILED_TEXT);
-                }
-                cur.advance(LMD);
-                renderer.renderErrorBlock(cur, err, -1);
-            }
-            if (!step.getEmbeddings().isEmpty()) {
-                renderer.renderScreenshotGroup(cur, step.getEmbeddings(), err != null && !err.isEmpty());
-            }
-        }
-        cur.ensureSpace(10f);
-        try (PDPageContentStream cs = cs(cur)) {
-            styler.hLine(cs, M, M + CW, cur.y, ColorScheme.BORDER, 0.5f);
-        }
-        cur.advance(9f);
-    }
-
-    private void renderHookBlock(ConsolidatedPageCursor cur,
-                                  List<CucumberStep> hooks,
-                                  String label) throws IOException {
-        for (CucumberStep hook : hooks) {
-            String err    = hook.getErrorMessage();
-            boolean hasErr  = err != null && !err.isEmpty();
-            boolean hasShot = !hook.getEmbeddings().isEmpty();
-            boolean hasLog  = !hook.getOutputLines().isEmpty();
-            if (!hasErr && !hasShot && !hasLog) continue;
-            if (hasErr) {
-                cur.ensureSpace(LMD + 36f);
-                try (PDPageContentStream cs = cs(cur)) {
-                    styler.drawText(cur.doc, cs, label, M, cur.y,
-                            styler.boldFont(), 8.5f, ColorScheme.FAILED_TEXT);
-                }
-                cur.advance(LMD);
-                renderer.renderErrorBlock(cur, err, -1);
-            }
-            if (hasLog) {
-                renderer.renderLogs(cur, hook.getOutputLines(), "Hook output");
-            }
-            if (hasShot) {
-                renderer.renderScreenshotGroup(cur, hook.getEmbeddings(), hasErr);
-            }
-        }
-    }
-
-    private void renderStep(ConsolidatedPageCursor cur,
-                             CucumberStep step) throws IOException {
-        String kw   = safe(step.getKeyword());
-        String nm   = safe(step.getName());
-        String st   = step.getStatus();
-        long   dur  = step.getDurationMillis();
-        boolean cont = ContentBlockRenderer.isContinuationKeyword(kw);
-
-        int      avail = ContentBlockRenderer.availStepChars(kw.length(), cont);
-        String[] nml   = ContentBlockRenderer.wrapStepName(nm, avail);
-        float    stepH = nml.length > 1 ? LMD * 2f + 4f : LMD + 4f;
-        cur.ensureSpace(stepH);
-
-        try (PDPageContentStream cs = cs(cur)) {
-            float y = cur.y;
-            float W = ConsolidatedPageCursor.PAGE_W;
-
-            if (cont) {
-                styler.dot(cs, M + 13f, y + 3f, 2.5f, ColorScheme.TEXT_HINT);
-                styler.drawText(cur.doc, cs, kw, M + 22f, y,
-                        styler.italicFont(), 9.5f, ColorScheme.TEXT_SECONDARY);
-                float nx = M + 22f + kw.length() * 5.1f;
-                styler.drawText(cur.doc, cs, nml[0], nx, y,
-                        styler.regularFont(), 9.5f, ColorScheme.TEXT_SECONDARY);
-                if (nml.length > 1 && !nml[1].isEmpty())
-                    styler.drawText(cur.doc, cs, nml[1], nx, y - LMD,
-                            styler.regularFont(), 9.5f, ColorScheme.TEXT_SECONDARY);
-            } else {
-                styler.dot(cs, M + 5f, y + 3f, 3.5f, ColorScheme.forStatus(st));
-                styler.drawText(cur.doc, cs, kw, M + 14f, y,
-                        styler.boldFont(), 9.5f, ColorScheme.ACCENT);
-                float nx = M + 14f + kw.length() * 5.5f;
-                styler.drawText(cur.doc, cs, nml[0], nx, y,
-                        styler.regularFont(), 9.5f, ColorScheme.TEXT_SECONDARY);
-                if (nml.length > 1 && !nml[1].isEmpty())
-                    styler.drawText(cur.doc, cs, nml[1], nx, y - LMD,
-                            styler.regularFont(), 9.5f, ColorScheme.TEXT_SECONDARY);
-            }
-
-            String ds = dur + "ms";
-            styler.drawText(cur.doc, cs, ds, W - M - ds.length() * 5f, y,
-                    styler.regularFont(), 7.5f, ColorScheme.TEXT_HINT);
-            styler.hLine(cs, M, W - M, y - 5f, ColorScheme.BORDER_SUBTLE, 0.3f);
-        }
-        cur.advance(nml.length > 1 ? LMD * 2f : LMD);
-
-        // Per-step content blocks — each renderer method adds its own BLOCK_GAP_BEFORE
-        String err = step.getErrorMessage();
-        if (err != null && !err.isEmpty()) {
-            renderer.renderErrorBlock(cur, err, -1);
-        }
-        if (!step.getOutputLines().isEmpty()) {
-            renderer.renderLogs(cur, step.getOutputLines(), null);
-        }
-        // E2 fix: render DataTable and DocString in expanded mode too
-        if (!step.getDataTableRows().isEmpty()) {
-            renderer.renderDataTable(cur, step.getDataTableRows());
-        }
-        if (step.getDocString() != null && step.getDocString().getContent() != null) {
-            renderer.renderDocString(cur, step.getDocString().getContent());
-        }
-        // E1 fix: show screenshots for ALL steps in expanded mode
-        if (!step.getEmbeddings().isEmpty()) {
-            renderer.renderScreenshotGroup(cur, step.getEmbeddings(), true);
-        }
-        // SP-6: increased from 4f → 8f — clear gap before next step's bullet
-        cur.advance(STEP_TRAIL_GAP);
-    }
+    // Footer
+    // -----------------------------------------------------------------------
 
     private void drawSectionFooter(ConsolidatedPageCursor cur) throws IOException {
         try (PDPageContentStream cs = new PDPageContentStream(
@@ -286,11 +146,12 @@ public class ExpandedSection {
             float W = ConsolidatedPageCursor.PAGE_W;
             styler.hLine(cs, M, W - M, 28f, ColorScheme.BORDER, 0.4f);
             styler.drawText(cur.doc, cs,
-                    PluginVersion.FULL + "  |  Expanded Steps",
+                    "Cucumber PDF Reporter v1.5.0  |  Expanded",
                     M, 14f, styler.regularFont(), 7f, ColorScheme.TEXT_HINT);
         }
     }
 
+    // -----------------------------------------------------------------------
     private PDPageContentStream cs(ConsolidatedPageCursor cur) throws IOException {
         return new PDPageContentStream(cur.doc, cur.page,
                 PDPageContentStream.AppendMode.APPEND, true);

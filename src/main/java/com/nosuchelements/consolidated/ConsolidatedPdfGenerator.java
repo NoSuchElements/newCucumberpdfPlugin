@@ -2,6 +2,7 @@ package com.nosuchelements.consolidated;
 
 import com.nosuchelements.consolidated.sections.*;
 import com.nosuchelements.cucumber.model.CucumberFeature;
+import com.nosuchelements.cucumber.model.ReportMetadata;
 import com.nosuchelements.pdf.ColorScheme;
 import com.nosuchelements.pdf.PdfStyler;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -20,31 +21,32 @@ import java.util.List;
  *
  * <h3>Section order</h3>
  * <pre>
- *   [1]   DashboardSection       — metric cards, bars, features-at-a-glance
- *   [2]   FailureSummarySection  — CI triage: every failing scenario with errors
- *   [3]   FeaturesSection        — full feature table with Case ID column
- *   [4]   ScenariosSection       — all scenarios with Tags column
- *   [5]   TagStatsSection        — per-tag pass/fail/skip breakdown
- *   [6]   DetailedSection        — step-by-step with errors, tables, docstrings
- *   [7]   ExpandedSection        — screenshots and attachments (opt-in)
+ *   [1]  DashboardSection       — metrics, bars, at-a-glance, metadata block
+ *   [2]  FailureSummarySection  — CI triage: failing scenarios + errors
+ *   [3]  SlowTestsSection       — top-N slowest scenarios  (opt-in)
+ *   [4]  FeaturesSection        — full feature table with Case ID column
+ *   [5]  ScenariosSection       — all scenarios with Tags column
+ *   [6]  TagStatsSection        — per-tag pass/fail/skip breakdown
+ *   [7]  DetailedSection        — step-by-step: errors, tables, docstrings, screenshots
+ *   [8]  ExpandedSection        — screenshots only (opt-in)
  * </pre>
  *
- * <h3>Two-pass page numbering</h3>
- * <p>PDFBox does not allow forward references, so page numbers are stamped in a
- * second pass after all content is written.  A {@link PageNumberRegistry} is
- * threaded through every section cursor; after the document is fully built the
- * generator iterates all pages and stamps "Page N of T" in the footer.</p>
- *
- * <h3>Content-block sharing</h3>
- * <p>Error blocks, log blocks, data tables, DocStrings, and screenshots are all
- * rendered through the shared {@link ContentBlockRenderer} — there is no
- * duplicated drawing code between sections.</p>
+ * <h3>v1.5.0 additions</h3>
+ * <ul>
+ *   <li>{@link ReportMetadata} — environment/build info block on Dashboard</li>
+ *   <li>{@link SlowTestsSection} — top-N slowest scenario table ({@code displaySlowTests})</li>
+ *   <li>PDF document properties (title, subject, creator) now set</li>
+ *   <li>Version string centralised to {@code VERSION} constant</li>
+ *   <li>All section footers updated to v1.5.0</li>
+ * </ul>
  */
 public class ConsolidatedPdfGenerator {
 
     private static final Logger log = LoggerFactory.getLogger(ConsolidatedPdfGenerator.class);
 
-    // ---- Section display flags ----
+    public static final String VERSION = "1.5.0";
+
+    // ---- Section display flags -----------------------------------------------
     private final boolean displayDashboard;
     private final boolean displayFeatures;
     private final boolean displayScenarios;
@@ -52,43 +54,66 @@ public class ConsolidatedPdfGenerator {
     private final boolean displayExpanded;
     private final boolean displayTagStats;
     private final boolean displayFailureSummary;
+    private final boolean displaySlowTests;
     private final int     maxOutputLines;
+    private final int     slowTestTopN;
     private final String  reportTitle;
     private final String  tagPrefix;
+    private final ReportMetadata metadata;
 
-    /** All sections on, expanded off. */
+    // =========================================================================
+    // Constructors — backward-compatible chain
+    // =========================================================================
+
+    /** All sections on, expanded + slowTests off. */
     public ConsolidatedPdfGenerator() {
-        this(true, true, true, true, false, true, true, 20,
-                "Cucumber Test Report", "QTEST_TC_");
+        this(true, true, true, true, false, true, true, false,
+                20, 15, "Cucumber Test Report", "QTEST_TC_", null);
     }
 
-    /** Legacy 8-arg constructor. */
+    /** Legacy 8-arg (pre-v1.2.0). */
     public ConsolidatedPdfGenerator(
             boolean displayDashboard, boolean displayFeatures,
             boolean displayScenarios, boolean displayDetailed,
             boolean displayExpanded,
             int maxOutputLines, String reportTitle, String tagPrefix) {
         this(displayDashboard, displayFeatures, displayScenarios, displayDetailed,
-             displayExpanded, true, true, maxOutputLines, reportTitle, tagPrefix);
+             displayExpanded, true, true, false,
+             maxOutputLines, 15, reportTitle, tagPrefix, null);
     }
 
-    /** Legacy 9-arg constructor (added displayTagStats). */
+    /** Legacy 9-arg (added displayTagStats in v1.2.0). */
     public ConsolidatedPdfGenerator(
             boolean displayDashboard, boolean displayFeatures,
             boolean displayScenarios, boolean displayDetailed,
             boolean displayExpanded, boolean displayTagStats,
             int maxOutputLines, String reportTitle, String tagPrefix) {
         this(displayDashboard, displayFeatures, displayScenarios, displayDetailed,
-             displayExpanded, displayTagStats, true, maxOutputLines, reportTitle, tagPrefix);
+             displayExpanded, displayTagStats, true, false,
+             maxOutputLines, 15, reportTitle, tagPrefix, null);
     }
 
-    /** Full 10-arg constructor — invoked by the updated Mojo. */
+    /** Legacy 10-arg (added displayFailureSummary in v1.2.0). */
     public ConsolidatedPdfGenerator(
             boolean displayDashboard, boolean displayFeatures,
             boolean displayScenarios, boolean displayDetailed,
             boolean displayExpanded, boolean displayTagStats,
             boolean displayFailureSummary,
             int maxOutputLines, String reportTitle, String tagPrefix) {
+        this(displayDashboard, displayFeatures, displayScenarios, displayDetailed,
+             displayExpanded, displayTagStats, displayFailureSummary, false,
+             maxOutputLines, 15, reportTitle, tagPrefix, null);
+    }
+
+    /** Full 13-arg constructor — used by updated Mojo. */
+    public ConsolidatedPdfGenerator(
+            boolean displayDashboard, boolean displayFeatures,
+            boolean displayScenarios, boolean displayDetailed,
+            boolean displayExpanded, boolean displayTagStats,
+            boolean displayFailureSummary, boolean displaySlowTests,
+            int maxOutputLines, int slowTestTopN,
+            String reportTitle, String tagPrefix,
+            ReportMetadata metadata) {
         this.displayDashboard      = displayDashboard;
         this.displayFeatures       = displayFeatures;
         this.displayScenarios      = displayScenarios;
@@ -96,96 +121,101 @@ public class ConsolidatedPdfGenerator {
         this.displayExpanded       = displayExpanded;
         this.displayTagStats       = displayTagStats;
         this.displayFailureSummary = displayFailureSummary;
+        this.displaySlowTests      = displaySlowTests;
         this.maxOutputLines        = Math.max(1, maxOutputLines);
+        this.slowTestTopN          = Math.max(1, Math.min(slowTestTopN, 50));
         this.reportTitle           = (reportTitle != null && !reportTitle.isBlank())
                 ? reportTitle : "Cucumber Test Report";
-        this.tagPrefix             = (tagPrefix   != null && !tagPrefix.isBlank())
+        this.tagPrefix             = (tagPrefix != null && !tagPrefix.isBlank())
                 ? tagPrefix.strip() : "QTEST_TC_";
+        this.metadata              = metadata;
     }
 
-    // -----------------------------------------------------------------------
+    // =========================================================================
     // Public API
-    // -----------------------------------------------------------------------
+    // =========================================================================
 
-    /**
-     * Build the consolidated PDF and write it to {@code outputFilePath}.
-     *
-     * @param features      non-null list of parsed Cucumber features
-     * @param outputFilePath absolute path for the output file
-     */
     public void generateReport(List<CucumberFeature> features,
                                 String outputFilePath) throws IOException {
-
         log.info("Generating consolidated PDF ({} features) -> {}",
                 features.size(), outputFilePath);
 
-        // Ensure parent directory exists
         File outFile = new File(outputFilePath);
         File parent  = outFile.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new IOException("Cannot create output directory: " + parent);
         }
 
-        // Pre-compute aggregate statistics (used by Dashboard)
-        ReportStats stats = ReportStats.compute(features);
-
-        PdfStyler styler = new PdfStyler();
-
-        // TOC collects section → page-number anchors
+        ReportStats stats  = ReportStats.compute(features);
+        PdfStyler   styler = new PdfStyler();
         TableOfContents toc = new TableOfContents();
 
         try (PDDocument doc = new PDDocument()) {
+            // Set PDF document properties
+            var info = doc.getDocumentInformation();
+            info.setTitle(reportTitle);
+            info.setSubject("Cucumber Test Report");
+            info.setCreator("Cucumber PDF Reporter v" + VERSION);
+            if (metadata != null && metadata.getEnvironment() != null) {
+                info.setCustomMetadataValue("Environment", metadata.getEnvironment());
+            }
 
-            // ---- [1] Dashboard ----
+            // [1] Dashboard
             if (displayDashboard) {
                 PDPage pg = addPage(doc);
-                new DashboardSection(styler, reportTitle, tagPrefix)
+                new DashboardSection(styler, reportTitle, tagPrefix, metadata)
                         .build(doc, pg, features, stats, toc);
             }
 
-            // ---- [1b] Failure Summary (placed early — CI triage page) ----
+            // [2] Failure Summary
             if (displayFailureSummary) {
                 PDPage pg = addPage(doc);
                 new FailureSummarySection(styler, maxOutputLines)
                         .build(doc, pg, features, toc);
             }
 
-            // ---- [2] Features table ----
+            // [3] Slow Tests (v1.5.0)
+            if (displaySlowTests) {
+                PDPage pg = addPage(doc);
+                new SlowTestsSection(styler, slowTestTopN)
+                        .build(doc, pg, features);
+            }
+
+            // [4] Features table
             if (displayFeatures) {
                 PDPage pg = addPage(doc);
                 new FeaturesSection(styler, tagPrefix)
                         .build(doc, pg, features, toc);
             }
 
-            // ---- [3] Scenarios ----
+            // [5] Scenarios
             if (displayScenarios) {
                 PDPage pg = addPage(doc);
                 new ScenariosSection(styler)
                         .build(doc, pg, features, toc);
             }
 
-            // ---- [3b] Tag statistics ----
+            // [6] Tag statistics
             if (displayTagStats) {
                 PDPage pg = addPage(doc);
                 new TagStatsSection(styler)
                         .build(doc, pg, features, toc);
             }
 
-            // ---- [4] Detailed steps ----
+            // [7] Detailed steps
             if (displayDetailed) {
                 PDPage pg = addPage(doc);
                 new DetailedSection(styler, maxOutputLines)
                         .build(doc, pg, features, toc);
             }
 
-            // ---- [5] Expanded (screenshots) ----
+            // [8] Expanded screenshots
             if (displayExpanded) {
                 PDPage pg = addPage(doc);
                 new ExpandedSection(styler, maxOutputLines)
                         .build(doc, pg, features, toc);
             }
 
-            // ---- Second pass: stamp "Page N of T" on every page ----
             stampPageNumbers(doc, styler);
 
             doc.save(outFile);
@@ -194,17 +224,10 @@ public class ConsolidatedPdfGenerator {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Page number stamping  (second pass)
-    // -----------------------------------------------------------------------
+    // =========================================================================
+    // Page number stamp (second pass)
+    // =========================================================================
 
-    /**
-     * Iterate every page in the finished document and stamp a "Page N of T" label
-     * in the bottom-right footer area.
-     *
-     * <p>Called after <em>all</em> sections have been written so the total page
-     * count is known.</p>
-     */
     public static void stampPageNumbers(PDDocument doc, PdfStyler styler) throws IOException {
         int total = doc.getNumberOfPages();
         for (int i = 0; i < total; i++) {
@@ -213,7 +236,6 @@ public class ConsolidatedPdfGenerator {
             float  x     = ConsolidatedPageCursor.PAGE_W
                     - ConsolidatedPageCursor.MARGIN_H
                     - label.length() * 4.5f;
-
             try (PDPageContentStream cs = new PDPageContentStream(
                     doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
                 styler.drawText(doc, cs, label,
@@ -222,9 +244,9 @@ public class ConsolidatedPdfGenerator {
         }
     }
 
-    // -----------------------------------------------------------------------
+    // =========================================================================
     // Helpers
-    // -----------------------------------------------------------------------
+    // =========================================================================
 
     private static PDPage addPage(PDDocument doc) {
         PDPage pg = new PDPage(PDRectangle.A4);

@@ -1,7 +1,6 @@
 package com.nosuchelements.consolidated.sections;
 
 import com.nosuchelements.consolidated.ConsolidatedPageCursor;
-import com.nosuchelements.consolidated.PluginVersion;
 import com.nosuchelements.consolidated.SectionHeader;
 import com.nosuchelements.consolidated.TableOfContents;
 import com.nosuchelements.cucumber.model.CucumberFeature;
@@ -16,20 +15,27 @@ import java.io.IOException;
 import java.util.*;
 
 /**
- * Tag Statistics section — per-tag pass/fail/skip breakdown.
+ * Tag Statistics section — mirrors the grasshopper7 "tags" section.
  *
- * <h3>Fixes applied</h3>
- * <ul>
- *   <li><b>T1</b> – Empty-tags path now creates a proper cursor and calls
- *       {@link SectionHeader#draw} so the page has a consistent section header,
- *       continuation-banner capability, and a registered page-number slot.
- *       The early-return that bypassed all of this is removed.</li>
- *   <li><b>T2</b> – Tags matching the configured {@code testCaseTagPrefix}
- *       (default {@code QTEST_TC_}) are sorted into a separate group at the
- *       <em>bottom</em> of the table so execution-category tags ({@code @smoke},
- *       {@code @regression}) remain at the top.</li>
- *   <li><b>D4</b> – Section footer uses {@link PluginVersion#FULL}.</li>
- * </ul>
+ * <p>Scans all features and scenarios for tags, then produces a sorted table
+ * showing each unique tag alongside its scenario pass/fail/skip counts and
+ * an inline progress bar.</p>
+ *
+ * <h3>Example output</h3>
+ * <pre>
+ * ╔════════════════════════════════════════════════════════╗
+ * ║  TAG STATISTICS                          18 unique tags║
+ * ╚════════════════════════════════════════════════════════╝
+ *
+ * │ Tag              │ Total │ Pass │ Fail │ Skip │ Progress         │
+ * │ @smoke           │  8    │   7  │   1  │   0  │ ███████░         │
+ * │ @regression      │ 15    │  14  │   1  │   0  │ ██████████████░  │
+ * │ @QTEST_TC_1001   │  1    │   1  │   0  │   0  │ ████████████████ │
+ * ...
+ * </pre>
+ *
+ * <p>Tags are sorted: failing tags first (by fail count desc), then passing
+ * by total scenarios desc. This surfaces broken tags immediately.</p>
  */
 public class TagStatsSection {
 
@@ -38,6 +44,7 @@ public class TagStatsSection {
     private static final float HDR  = 18f;
     private static final float ROW  = 17f;
 
+    // Column offsets
     private static final float C_TAG  = M + 6f;
     private static final float C_TOT  = M + CW * 0.42f;
     private static final float C_PASS = M + CW * 0.52f;
@@ -45,34 +52,45 @@ public class TagStatsSection {
     private static final float C_SKIP = M + CW * 0.72f;
     private static final float C_BAR  = M + CW * 0.80f;
 
-    /** Default prefix used to identify test-case-ID tags (e.g. QTEST_TC_). */
-    private static final String DEFAULT_TC_PREFIX = "QTEST_TC_";
-
     private final PdfStyler styler;
-    /** Upper-cased, @-stripped prefix used to detect test-case-ID tags. */
-    private final String    tcPrefix;
 
     public TagStatsSection(PdfStyler styler) {
-        this(styler, DEFAULT_TC_PREFIX);
+        this.styler = styler;
     }
 
-    public TagStatsSection(PdfStyler styler, String testCaseTagPrefix) {
-        this.styler   = styler;
-        String raw = (testCaseTagPrefix != null && !testCaseTagPrefix.isBlank())
-                ? testCaseTagPrefix.strip() : DEFAULT_TC_PREFIX;
-        this.tcPrefix = raw.startsWith("@") ? raw.substring(1).toUpperCase() : raw.toUpperCase();
-    }
-
+    // -----------------------------------------------------------------------
+    // Entry point
     // -----------------------------------------------------------------------
 
     public void build(PDDocument doc, PDPage firstPage,
                       List<CucumberFeature> features,
                       TableOfContents toc) throws IOException {
 
+        // --- Aggregate tag stats ---
         Map<String, TagStat> tagMap = new LinkedHashMap<>();
         collectTagStats(features, tagMap);
 
-        // T1 fix: always create a cursor so the page has proper structure
+        // If no tags: render a notice on the pre-allocated page rather than leaving it blank.
+        // cur hasn't been created yet here, so we write directly to firstPage.
+        if (tagMap.isEmpty()) {
+            float noticeY = firstPage.getMediaBox().getUpperRightY()
+                    - ConsolidatedPageCursor.MARGIN_V - 20f;
+            try (PDPageContentStream cs = new PDPageContentStream(
+                    doc, firstPage, PDPageContentStream.AppendMode.APPEND, true)) {
+                styler.drawText(doc, cs,
+                        "No tags were found in this test run.",
+                        M, noticeY, styler.regularFont(), 11f, ColorScheme.TEXT_MUTED);
+            }
+            toc.add("Tag Statistics", doc.getNumberOfPages());
+            return;
+        }
+
+        // Sort: failing tags first, then by total desc
+        List<TagStat> sorted = new ArrayList<>(tagMap.values());
+        sorted.sort(Comparator
+                .<TagStat>comparingInt(t -> -t.failed)
+                .thenComparingInt(t -> -t.total));
+
         ConsolidatedPageCursor cur = new ConsolidatedPageCursor(
                 doc, firstPage, styler, "Tag Statistics");
 
@@ -80,43 +98,8 @@ public class TagStatsSection {
 
         SectionHeader.draw(cur, styler,
                 "Tag Statistics",
-                tagMap.isEmpty() ? "no tags found"
-                        : tagMap.size() + " unique tag" + (tagMap.size() == 1 ? "" : "s"),
+                tagMap.size() + " unique tag" + (tagMap.size() == 1 ? "" : "s"),
                 ColorScheme.SKIPPED);
-
-        if (tagMap.isEmpty()) {
-            // T1 fix: render notice through the cursor (continuation-capable)
-            cur.ensureSpace(40f);
-            try (PDPageContentStream cs = cs(cur)) {
-                styler.drawText(cur.doc, cs,
-                        "No tags were found in this test run.",
-                        M, cur.y, styler.regularFont(), 11f, ColorScheme.TEXT_MUTED);
-            }
-            cur.advance(20f);
-            drawSectionFooter(cur, Collections.emptyList());
-            return;
-        }
-
-        // T2 fix: split into two groups — regular tags first, TC-ID tags last
-        List<TagStat> regular = new ArrayList<>();
-        List<TagStat> tcIds   = new ArrayList<>();
-        for (TagStat t : tagMap.values()) {
-            String normalised = t.name.startsWith("@")
-                    ? t.name.substring(1).toUpperCase() : t.name.toUpperCase();
-            if (normalised.startsWith(tcPrefix)) tcIds.add(t);
-            else                                  regular.add(t);
-        }
-
-        // Sort each group: failing-first, then by total desc
-        Comparator<TagStat> cmp = Comparator
-                .<TagStat>comparingInt(t -> -t.failed)
-                .thenComparingInt(t -> -t.total);
-        regular.sort(cmp);
-        tcIds.sort(cmp);
-
-        List<TagStat> sorted = new ArrayList<>(regular.size() + tcIds.size());
-        sorted.addAll(regular);
-        sorted.addAll(tcIds);
 
         drawColumnHeader(cur);
 
@@ -139,6 +122,7 @@ public class TagStatsSection {
         for (CucumberFeature feature : features) {
             for (CucumberScenario sc : feature.getActualScenarios()) {
                 String status = sc.getStatus();
+                // Merge feature-level tags and scenario-level tags
                 Set<String> tags = new LinkedHashSet<>(feature.getTags());
                 tags.addAll(sc.getTags());
                 for (String tag : tags) {
@@ -174,7 +158,8 @@ public class TagStatsSection {
 
     private void drawTagRow(ConsolidatedPageCursor cur,
                              TagStat tag, boolean alt) throws IOException {
-        java.awt.Color rowStatus = tag.failed  > 0 ? ColorScheme.FAILED
+        // Determine row status colour
+        java.awt.Color rowStatus = tag.failed > 0   ? ColorScheme.FAILED
                 : tag.skipped > 0 ? ColorScheme.SKIPPED
                 : ColorScheme.PASSED;
 
@@ -182,11 +167,16 @@ public class TagStatsSection {
             float bgY = cur.y - ROW;
             styler.fillRect(cs, M, bgY, CW, ROW,
                     alt ? ColorScheme.ROW_ALT : ColorScheme.CARD_BG);
+            // Left status stripe (2.5px)
             styler.fillRect(cs, M, bgY, 2.5f, ROW, rowStatus);
+
             float ry = cur.y - ROW + 4f;
 
+            // Tag name
             styler.drawText(cur.doc, cs, trunc(tag.name, 36),
                     C_TAG + 4f, ry, styler.regularFont(), 8.5f, ColorScheme.TEXT_SECONDARY);
+
+            // Counts
             styler.drawText(cur.doc, cs, str(tag.total),
                     C_TOT, ry, styler.boldFont(), 8.5f, ColorScheme.TEXT_PRIMARY);
             styler.drawText(cur.doc, cs, str(tag.passed),
@@ -205,12 +195,18 @@ public class TagStatsSection {
                 styler.drawText(cur.doc, cs, "—",
                         C_SKIP, ry, styler.regularFont(), 8.5f, ColorScheme.TEXT_HINT);
             }
+
+            // Mini progress bar
             float barW = CW * 0.16f;
             styler.drawProgressBar(cs, C_BAR, ry, barW, 5f,
                     tag.passed, tag.failed, tag.skipped);
+
+            // Pass rate label
             int pct = tag.total > 0 ? (int) Math.round(100.0 * tag.passed / tag.total) : 0;
             styler.drawText(cur.doc, cs, pct + "%",
                     C_BAR + barW + 6f, ry, styler.regularFont(), 7.5f, ColorScheme.TEXT_HINT);
+
+            // Row divider
             styler.hLine(cs, M, M + CW, bgY, ColorScheme.BORDER_SUBTLE, 0.3f);
         }
         cur.advance(ROW);
@@ -226,22 +222,22 @@ public class TagStatsSection {
             String summary = sorted.size() + " tags  —  " + failingTags + " with failures";
             styler.drawText(cur.doc, cs, summary,
                     M, cur.y - 10f, styler.boldFont(), 8.5f, ColorScheme.TEXT_SECONDARY);
-            // D4: PluginVersion
-            styler.drawText(cur.doc, cs,
-                    PluginVersion.FULL + "  |  Tag Statistics",
-                    M, 14f, styler.regularFont(), 7f, ColorScheme.TEXT_HINT);
         }
         cur.advance(18f);
     }
 
     // -----------------------------------------------------------------------
+    // Data class
+    // -----------------------------------------------------------------------
 
     private static class TagStat {
         final String name;
         int total, passed, failed, skipped;
+
         TagStat(String name) { this.name = name; }
     }
 
+    // -----------------------------------------------------------------------
     private PDPageContentStream cs(ConsolidatedPageCursor cur) throws IOException {
         return new PDPageContentStream(cur.doc, cur.page,
                 PDPageContentStream.AppendMode.APPEND, true);

@@ -27,17 +27,6 @@ import java.util.List;
  *   <li>Every method returns {@code void}; the cursor position is updated in-place.</li>
  *   <li>Stateless — safe to share across parallel calls if needed.</li>
  * </ul>
- *
- * <h3>Spacing constants (v1.4.1)</h3>
- * <ul>
- *   <li>{@link #BLOCK_GAP_BEFORE} — vertical gap inserted <em>before</em> every
- *       error, log, data-table, and DocString block so they breathe away from the
- *       step line above them.</li>
- *   <li>{@link #SCREENSHOT_GAP_BEFORE} — slightly larger gap before the first
- *       screenshot in a group (or before the "Screenshots" label when shown).</li>
- *   <li>{@link #INTER_SCREENSHOT_GAP} — gap between consecutive screenshots in a
- *       group, replacing the old hard-coded {@code 6f}.</li>
- * </ul>
  */
 public class ContentBlockRenderer {
 
@@ -47,16 +36,6 @@ public class ContentBlockRenderer {
     private static final float CW  = ConsolidatedPageCursor.CONTENT_W;
     private static final float LSM = 11f;   // small line spacing
     private static final float LMD = 14f;   // medium line spacing
-
-    // ------------------------------------------------------------------
-    // Spacing constants — v1.4.1
-    // ------------------------------------------------------------------
-    /** Vertical gap inserted BEFORE every error / log / table / DocString block. */
-    private static final float BLOCK_GAP_BEFORE      = 5f;
-    /** Vertical gap inserted BEFORE the first screenshot (or its label). */
-    private static final float SCREENSHOT_GAP_BEFORE = 8f;
-    /** Vertical gap between consecutive screenshots in a group. */
-    private static final float INTER_SCREENSHOT_GAP  = 10f;
 
     // Maximum screenshot dimensions (points)
     private static final float IMG_W = 490f;
@@ -77,25 +56,18 @@ public class ContentBlockRenderer {
     /**
      * Render a multi-line error / stack-trace block.
      *
-     * <p>A {@link #BLOCK_GAP_BEFORE} gap is inserted before the block so it
-     * breathes away from the step line or label drawn above it.</p>
-     *
      * @param cur      page cursor
      * @param error    raw error string (may contain CRLF, tabs, Unicode)
-     * @param maxLines hard cap on displayed lines (pass {@code -1} to use
-     *                 {@link #maxOutputLines})
+     * @param maxLines hard cap on displayed lines (use {@link #maxOutputLines} for logs,
+     *                 a smaller value like 8 for inline step errors)
      */
     public void renderErrorBlock(ConsolidatedPageCursor cur,
                                  String error,
                                  int maxLines) throws IOException {
         if (error == null || error.isEmpty()) return;
-        int effectiveMax = (maxLines < 0) ? maxOutputLines : maxLines;
         String[] lines = error.split("\\r?\\n");
-        int shown = Math.min(lines.length, effectiveMax);
-        float bH  = shown * LSM + (lines.length > effectiveMax ? LSM : 0) + 12f;
-
-        // SP-1: breathing room before the block
-        cur.advance(BLOCK_GAP_BEFORE);
+        int shown = Math.min(lines.length, maxLines);
+        float bH  = shown * LSM + (lines.length > maxLines ? LSM : 0) + 12f;
         cur.ensureSpace(bH + 6f);
 
         float bX = M + 10f, bW = CW - 10f, bY = cur.y - bH;
@@ -109,9 +81,9 @@ public class ContentBlockRenderer {
                         bX + 10f, ty, styler.monoFont(), 7.5f, ColorScheme.FAILED_TEXT);
                 ty -= LSM;
             }
-            if (lines.length > effectiveMax) {
+            if (lines.length > maxLines) {
                 styler.drawText(cur.doc, cs,
-                        "... +" + (lines.length - effectiveMax) + " more lines",
+                        "... +" + (lines.length - maxLines) + " more lines",
                         bX + 10f, ty, styler.monoFont(), 7.5f, ColorScheme.TEXT_HINT);
             }
         }
@@ -125,8 +97,6 @@ public class ContentBlockRenderer {
     /**
      * Render step output lines, optionally preceded by a section label.
      *
-     * <p>A {@link #BLOCK_GAP_BEFORE} gap is inserted before this block.</p>
-     *
      * @param cur   page cursor
      * @param lines log lines to display (truncated to {@link #maxOutputLines})
      * @param label section label (e.g. "Logs", "Hook output") — may be {@code null}
@@ -139,9 +109,6 @@ public class ContentBlockRenderer {
         int shown = Math.min(lines.size(), maxOutputLines);
         float bH  = shown * LSM + (lines.size() > maxOutputLines ? LSM : 0) + 10f;
         float reserve = (label != null ? LMD + 4f : 0) + bH + 6f;
-
-        // SP-1: breathing room before the block
-        cur.advance(BLOCK_GAP_BEFORE);
         cur.ensureSpace(reserve);
 
         if (label != null) {
@@ -178,16 +145,11 @@ public class ContentBlockRenderer {
 
     /**
      * Render a Cucumber DataTable with a dark header row.
-     *
-     * <p>A {@link #BLOCK_GAP_BEFORE} gap is inserted before this block.</p>
      */
     public void renderDataTable(ConsolidatedPageCursor cur,
                                 List<CucumberTableRow> rows) throws IOException {
         if (rows == null || rows.isEmpty()) return;
         float tH = rows.size() * LSM + 8f;
-
-        // SP-1: breathing room before the block
-        cur.advance(BLOCK_GAP_BEFORE);
         cur.ensureSpace(tH + 6f);
 
         float bX = M + 10f, bW = CW - 10f, tY = cur.y - tH;
@@ -217,8 +179,6 @@ public class ContentBlockRenderer {
     /**
      * Render a multi-line DocString with an indigo left accent stripe.
      * Capped at 25 lines.
-     *
-     * <p>A {@link #BLOCK_GAP_BEFORE} gap is inserted before this block.</p>
      */
     public void renderDocString(ConsolidatedPageCursor cur,
                                 String content) throws IOException {
@@ -226,9 +186,6 @@ public class ContentBlockRenderer {
         String[] lines = content.split("\\r?\\n");
         int shown = Math.min(lines.length, 25);
         float bH  = shown * LSM + (lines.length > 25 ? LSM : 0) + 10f;
-
-        // SP-1: breathing room before the block
-        cur.advance(BLOCK_GAP_BEFORE);
         cur.ensureSpace(bH + 6f);
 
         float bX = M + 10f, bW = CW - 10f, bY = cur.y - bH;
@@ -259,13 +216,6 @@ public class ContentBlockRenderer {
      * Render all screenshots from a list, with an optional "Screenshots" section
      * label before the first image.
      *
-     * <p>Changes in v1.4.1:</p>
-     * <ul>
-     *   <li>SP-2: {@link #SCREENSHOT_GAP_BEFORE} gap inserted before the group.</li>
-     *   <li>SP-3: {@link #INTER_SCREENSHOT_GAP} replaces the old hard-coded {@code 6f}
-     *       between consecutive images, giving each screenshot room to breathe.</li>
-     * </ul>
-     *
      * @param cur       page cursor
      * @param shots     base64 PNG/JPEG strings
      * @param showLabel if {@code true}, draw a "Screenshots" label before the first image
@@ -274,10 +224,6 @@ public class ContentBlockRenderer {
                                       List<String> shots,
                                       boolean showLabel) throws IOException {
         if (shots == null || shots.isEmpty()) return;
-
-        // SP-2: breathing room before the screenshot group
-        cur.advance(SCREENSHOT_GAP_BEFORE);
-
         for (int i = 0; i < shots.size(); i++) {
             if (i == 0 && showLabel) {
                 cur.ensureSpace(LMD + 60f);
@@ -288,18 +234,12 @@ public class ContentBlockRenderer {
                 cur.advance(LMD);
             }
             renderSingleScreenshot(cur, shots.get(i));
-            // SP-3: inter-screenshot gap (replaces hard-coded 6f)
-            if (i < shots.size() - 1) {
-                cur.advance(INTER_SCREENSHOT_GAP);
-            }
+            cur.advance(6f);
         }
     }
 
     /**
      * Render a single screenshot with a white card frame.
-     *
-     * <p>SP-4 (v1.4.1): bottom card padding increased from {@code 12f} to
-     * {@code 16f} so the card visually closes before the next element.</p>
      */
     public void renderSingleScreenshot(ConsolidatedPageCursor cur,
                                        String b64) throws IOException {
@@ -312,15 +252,14 @@ public class ContentBlockRenderer {
             float dW = img.getWidth()  * scale;
             float dH = img.getHeight() * scale;
 
-            cur.ensureSpace(dH + 20f);
+            cur.ensureSpace(dH + 16f);
 
             float fX = M + 4f, fW = CW - 4f, fY = cur.y - dH - 8f;
             try (PDPageContentStream cs = cs(cur)) {
                 styler.drawCard(cs, fX, fY - 4f, fW, dH + 8f);
                 cs.drawImage(img, fX + (fW - dW) / 2f, fY, dW, dH);
             }
-            // SP-4: increased from 12f → 16f for card breathing room
-            cur.advance(dH + 16f);
+            cur.advance(dH + 12f);
 
         } catch (Exception e) {
             log.warn("Screenshot decode failed ({}): {}", b64.length(), e.getMessage());

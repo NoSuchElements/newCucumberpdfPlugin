@@ -3,6 +3,7 @@ package com.nosuchelements.maven;
 import com.nosuchelements.consolidated.ConsolidatedPdfGenerator;
 import com.nosuchelements.cucumber.CucumberJsonParser;
 import com.nosuchelements.cucumber.model.CucumberFeature;
+import com.nosuchelements.cucumber.model.ReportMetadata;
 import com.nosuchelements.pdf.ColorScheme;
 import com.nosuchelements.pdf.ColorSchemeConfig;
 import com.nosuchelements.pdf.FeaturePdfGenerator;
@@ -23,239 +24,140 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 /**
- * Maven Mojo that generates Cucumber PDF reports from JSON results.
+ * Maven Mojo — generates Cucumber PDF reports from JSON results.
  *
- * <p>Three report modes are supported, controlled by {@link #reportMode}:</p>
- *
+ * <h3>Report modes</h3>
  * <table border="1" cellpadding="4">
  *   <tr><th>Mode</th><th>Output</th></tr>
- *   <tr>
- *     <td>{@code split} (default)</td>
- *     <td>One PDF per Cucumber feature (original behaviour)</td>
- *   </tr>
- *   <tr>
- *     <td>{@code consolidated}</td>
- *     <td>One single PDF combining Dashboard → Features → Scenarios →
- *         Detailed [→ Expanded] sections, matching the grasshopper7 layout</td>
- *   </tr>
- *   <tr>
- *     <td>{@code both}</td>
- *     <td>Generates both the consolidated PDF <em>and</em> all per-feature split PDFs</td>
- *   </tr>
+ *   <tr><td>{@code split} (default)</td><td>One PDF per feature</td></tr>
+ *   <tr><td>{@code consolidated}</td><td>Single PDF — all sections</td></tr>
+ *   <tr><td>{@code both}</td><td>Both simultaneously</td></tr>
  * </table>
  *
- * <h3>Minimal split configuration (unchanged)</h3>
- * <pre>{@code
- * <configuration>
- *   <cucumberJson>${project.build.directory}/cucumber.json</cucumberJson>
- *   <reportOutputDir>${project.build.directory}/cucumber-reports</reportOutputDir>
- * </configuration>
- * }</pre>
- *
- * <h3>Consolidated report</h3>
- * <pre>{@code
- * <configuration>
- *   <reportMode>consolidated</reportMode>
- *   <cucumberJsonPattern>**\/cucumber*.json</cucumberJsonPattern>
- *   <consolidatedReportName>TestReport.pdf</consolidatedReportName>
- *   <reportTitle>Regression Suite — Sprint 42</reportTitle>
- *   <displayExpanded>true</displayExpanded>
- * </configuration>
- * }</pre>
- *
- * <h3>Both modes</h3>
- * <pre>{@code
- * <configuration>
- *   <reportMode>both</reportMode>
- *   <reportTitle>My Project Test Run</reportTitle>
- * </configuration>
- * }</pre>
+ * <h3>v1.5.0 additions</h3>
+ * <ul>
+ *   <li>{@code <metadata>} block — environment / build info on Dashboard</li>
+ *   <li>{@code displaySlowTests} — top-N slowest scenarios section</li>
+ *   <li>{@code slowTestTopN} — how many slow tests to show (default 15)</li>
+ *   <li>Version banner updated to v1.5.0</li>
+ * </ul>
  */
 @Mojo(name = "generate-pdfs",
-        defaultPhase = LifecyclePhase.POST_INTEGRATION_TEST,
-        threadSafe = true)
+      defaultPhase = LifecyclePhase.POST_INTEGRATION_TEST,
+      threadSafe = true)
 public class SplitPdfReporterMojo extends AbstractMojo {
 
-    // -----------------------------------------------------------------------
-    // Parameters — input discovery
-    // -----------------------------------------------------------------------
+    static final String VERSION = ConsolidatedPdfGenerator.VERSION;
 
-    /** Path to a single Cucumber JSON results file. */
+    // =========================================================================
+    // Parameters — input
+    // =========================================================================
+
     @Parameter(property = "cucumberJson",
                defaultValue = "${project.build.directory}/cucumber.json")
     private File cucumberJson;
 
-    /**
-     * Ant-style glob pattern for locating one or more Cucumber JSON files.
-     * Overrides {@link #cucumberJson} when non-blank.
-     */
     @Parameter(property = "cucumberJsonPattern")
     private String cucumberJsonPattern;
 
-    /**
-     * F-13: Root directory from which {@link #cucumberJsonPattern} is applied.
-     * Set to {@code ${project.basedir}/..} to scan across sibling submodules.
-     */
     @Parameter(property = "scanRoot",
                defaultValue = "${project.basedir}")
     private File scanRoot;
 
-    // -----------------------------------------------------------------------
+    // =========================================================================
     // Parameters — output
-    // -----------------------------------------------------------------------
+    // =========================================================================
 
-    /** Directory where PDF files are written. */
     @Parameter(property = "reportOutputDir",
                defaultValue = "${project.build.directory}/cucumber-reports")
     private File outputDirectory;
 
-    /** Base directory (read-only, injected by Maven). */
     @Parameter(property = "project.basedir",
-               defaultValue = "${project.basedir}",
-               readonly = true)
+               defaultValue = "${project.basedir}", readonly = true)
     private File baseDir;
 
-    // -----------------------------------------------------------------------
-    // Parameters — report mode  (NEW)
-    // -----------------------------------------------------------------------
+    // =========================================================================
+    // Parameters — report mode
+    // =========================================================================
 
-    /**
-     * Controls which PDF(s) are generated.
-     *
-     * <ul>
-     *   <li>{@code split}        — one PDF per feature (default, original behaviour)</li>
-     *   <li>{@code consolidated} — single PDF with Dashboard/Features/Scenarios/Detailed</li>
-     *   <li>{@code both}         — generates both</li>
-     * </ul>
-     */
     @Parameter(property = "reportMode", defaultValue = "split")
     private String reportMode;
 
-    // -----------------------------------------------------------------------
-    // Parameters — consolidated report settings  (NEW)
-    // -----------------------------------------------------------------------
+    // =========================================================================
+    // Parameters — consolidated report
+    // =========================================================================
 
-    /**
-     * File name for the consolidated PDF (written inside {@link #outputDirectory}).
-     * Default: {@code cucumber-report.pdf}
-     */
     @Parameter(property = "consolidatedReportName",
                defaultValue = "cucumber-report.pdf")
     private String consolidatedReportName;
 
-    /**
-     * Title shown on the Dashboard page of the consolidated report.
-     * Default: {@code "Cucumber Test Report"}
-     */
     @Parameter(property = "reportTitle", defaultValue = "Cucumber Test Report")
     private String reportTitle;
 
-    /** Show the Dashboard section in the consolidated report (default: true). */
-    @Parameter(property = "displayDashboard", defaultValue = "true")
-    private boolean displayDashboard;
-
-    /** Show the Features table section in the consolidated report (default: true). */
-    @Parameter(property = "displayFeature", defaultValue = "true")
-    private boolean displayFeature;
-
-    /** Show the Scenarios table section in the consolidated report (default: true). */
-    @Parameter(property = "displayScenario", defaultValue = "true")
-    private boolean displayScenario;
-
-    /** Show the Detailed steps section in the consolidated report (default: true). */
-    @Parameter(property = "displayDetailed", defaultValue = "true")
-    private boolean displayDetailed;
+    @Parameter(property = "displayDashboard",      defaultValue = "true")  private boolean displayDashboard;
+    @Parameter(property = "displayFeature",        defaultValue = "true")  private boolean displayFeature;
+    @Parameter(property = "displayScenario",       defaultValue = "true")  private boolean displayScenario;
+    @Parameter(property = "displayDetailed",       defaultValue = "true")  private boolean displayDetailed;
+    @Parameter(property = "displayExpanded",       defaultValue = "false") private boolean displayExpanded;
+    @Parameter(property = "displayTagStats",       defaultValue = "true")  private boolean displayTagStats;
+    @Parameter(property = "displayFailureSummary", defaultValue = "true")  private boolean displayFailureSummary;
 
     /**
-     * Show the Expanded section (screenshots, docstrings, tables) in the
-     * consolidated report.  Default: {@code false} to keep file size manageable.
+     * Show the Slow Tests section (top-N slowest scenarios sorted by duration).
+     * Default: {@code false}.
      */
-    @Parameter(property = "displayExpanded", defaultValue = "false")
-    private boolean displayExpanded;
+    @Parameter(property = "displaySlowTests", defaultValue = "false")
+    private boolean displaySlowTests;
 
     /**
-     * Show the Tag Statistics section in the consolidated report.
-     * Default: {@code true}.
+     * Number of slowest scenarios to include in the Slow Tests section.
+     * Default: {@code 15}.
      */
-    @Parameter(property = "displayTagStats", defaultValue = "true")
-    private boolean displayTagStats;
+    @Parameter(property = "slowTestTopN", defaultValue = "15")
+    private int slowTestTopN;
 
     /**
-     * Show the Failure Summary section in the consolidated report.
+     * Optional environment / build metadata shown on the Dashboard.
      *
-     * <p>When {@code true}, a dedicated CI-triage page is inserted right after
-     * the Dashboard, listing every FAILED and SKIPPED scenario with its full
-     * step detail and error messages. If all scenarios passed, a green
-     * "All scenarios passed" banner is shown instead.</p>
-     *
-     * <p>Default: {@code true} — this is the most actionable section for
-     * automated CI pipelines.</p>
+     * <pre>{@code
+     * <metadata>
+     *   <environment>QA</environment>
+     *   <branch>${env.GIT_BRANCH}</branch>
+     *   <build>${env.BUILD_NUMBER}</build>
+     *   <appVersion>2.14.0</appVersion>
+     *   <browser>Chrome 124</browser>
+     * </metadata>
+     * }</pre>
      */
-    @Parameter(property = "displayFailureSummary", defaultValue = "true")
-    private boolean displayFailureSummary;
+    @Parameter
+    private ReportMetadata metadata;
 
-    // -----------------------------------------------------------------------
+    // =========================================================================
     // Parameters — behaviour
-    // -----------------------------------------------------------------------
+    // =========================================================================
 
-    /** Skip plugin execution entirely. */
-    @Parameter(property = "skipSplitPdfReporter", defaultValue = "false")
-    private boolean skip;
+    @Parameter(property = "skipSplitPdfReporter", defaultValue = "false") private boolean skip;
+    @Parameter(property = "failOnNoFeatures",     defaultValue = "true")  private boolean failOnNoFeatures;
+    @Parameter(property = "verbose",              defaultValue = "false") private boolean verbose;
+    @Parameter(property = "consolidate",          defaultValue = "false") private boolean consolidate;
+    @Parameter(property = "parallel",             defaultValue = "false") private boolean parallel;
 
-    /** Fail the build if no Cucumber JSON files are found. */
-    @Parameter(property = "failOnNoFeatures", defaultValue = "true")
-    private boolean failOnNoFeatures;
+    // =========================================================================
+    // Parameters — split page content
+    // =========================================================================
 
-    /** Extra debug logging per feature/file. */
-    @Parameter(property = "verbose", defaultValue = "false")
-    private boolean verbose;
+    @Parameter(property = "includeSummaryPage",   defaultValue = "true")  private boolean includeSummaryPage;
+    @Parameter(property = "includeFeaturePage",   defaultValue = "true")  private boolean includeFeaturePage;
+    @Parameter(property = "includeDetailedPages", defaultValue = "true")  private boolean includeDetailedPages;
+    @Parameter(property = "maxOutputLines",       defaultValue = "20")    private int maxOutputLines;
+    @Parameter(property = "tagPrefix",            defaultValue = "QTEST_TC_") private String tagPrefix;
 
-    /**
-     * F-13: When {@code true}, deduplicate features by URI across all matched files.
-     */
-    @Parameter(property = "consolidate", defaultValue = "false")
-    private boolean consolidate;
-
-    /**
-     * F-15: Generate split PDFs in parallel using a Java parallel stream.
-     */
-    @Parameter(property = "parallel", defaultValue = "false")
-    private boolean parallel;
-
-    // -----------------------------------------------------------------------
-    // Parameters — page content
-    // -----------------------------------------------------------------------
-
-    /** Accepted but ignored — SummaryPage was removed in v1.1.1. */
-    @Parameter(property = "includeSummaryPage", defaultValue = "true")
-    private boolean includeSummaryPage;
-
-    @Parameter(property = "includeFeaturePage", defaultValue = "true")
-    private boolean includeFeaturePage;
-
-    @Parameter(property = "includeDetailedPages", defaultValue = "true")
-    private boolean includeDetailedPages;
-
-    /**
-     * F-04: Maximum output log lines per step/hook section.
-     * Applies to both split and consolidated reports.
-     */
-    @Parameter(property = "maxOutputLines", defaultValue = "20")
-    private int maxOutputLines;
-
-    /**
-     * Tag prefix used to identify the test case ID tag.
-     */
-    @Parameter(property = "tagPrefix", defaultValue = "QTEST_TC_")
-    private String tagPrefix;
-
-    /** F-10: Optional colour overrides. */
     @Parameter
     private ColorSchemeConfig colors;
 
-    // -----------------------------------------------------------------------
+    // =========================================================================
     // Execution
-    // -----------------------------------------------------------------------
+    // =========================================================================
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
@@ -266,7 +168,6 @@ public class SplitPdfReporterMojo extends AbstractMojo {
 
         banner();
 
-        // Validate reportMode
         String mode = reportMode != null ? reportMode.trim().toLowerCase() : "split";
         if (!mode.equals("split") && !mode.equals("consolidated") && !mode.equals("both")) {
             throw new MojoExecutionException(
@@ -274,17 +175,13 @@ public class SplitPdfReporterMojo extends AbstractMojo {
                     + "'. Valid values: split | consolidated | both");
         }
 
-        // F-10: apply colour overrides
         ColorScheme.apply(colors);
 
-        // Collect and parse all JSON input files
         List<File> jsonFiles = resolveInputFiles();
-
         if (jsonFiles.isEmpty()) {
             String msg = buildNoFilesMessage();
             if (failOnNoFeatures) {
-                throw new MojoExecutionException(
-                        msg + "  Set failOnNoFeatures=false to downgrade to a warning.");
+                throw new MojoExecutionException(msg + "  Set failOnNoFeatures=false to warn only.");
             }
             getLog().warn(msg);
             getLog().warn("Skipping PDF generation.");
@@ -293,17 +190,13 @@ public class SplitPdfReporterMojo extends AbstractMojo {
 
         ensureOutputDirectory();
 
-        // Parse all JSON files (with optional URI deduplication)
         List<CucumberFeature> allFeatures = parseAllJsonFiles(jsonFiles);
-
         if (allFeatures.isEmpty()) {
             getLog().warn("No features found in any input file.");
             return;
         }
 
-        // Generate based on mode
         int splitFailures = 0;
-
         if ("split".equals(mode) || "both".equals(mode)) {
             getLog().info("Generating split PDFs (" + allFeatures.size() + " feature(s)"
                     + (parallel ? " [parallel]" : "") + ")...");
@@ -318,14 +211,13 @@ public class SplitPdfReporterMojo extends AbstractMojo {
             consolidatedFailures = generateConsolidatedPdf(allFeatures);
         }
 
-        // Summary
         getLog().info("");
         getLog().info("=====================================================");
-        getLog().info("  Cucumber PDF Reporter — Generation Summary");
-        getLog().info("  Mode      : " + mode);
-        getLog().info("  Features  : " + allFeatures.size());
-        getLog().info("  Output    : " + outputDirectory.getAbsolutePath());
-        if ("consolidated".equals(mode) || "both".equals(mode)) {
+        getLog().info("  Cucumber PDF Reporter v" + VERSION + " — Summary");
+        getLog().info("  Mode     : " + mode);
+        getLog().info("  Features : " + allFeatures.size());
+        getLog().info("  Output   : " + outputDirectory.getAbsolutePath());
+        if (!"split".equals(mode)) {
             getLog().info("  Consolidated PDF : " + consolidatedReportName);
         }
         getLog().info("=====================================================");
@@ -333,36 +225,31 @@ public class SplitPdfReporterMojo extends AbstractMojo {
         int totalFailures = splitFailures + consolidatedFailures;
         if (totalFailures > 0) {
             throw new MojoFailureException(
-                    "PDF generation completed with " + totalFailures + " failure(s). See log above.");
+                    "PDF generation completed with " + totalFailures + " failure(s). See log.");
         }
     }
 
-    // -----------------------------------------------------------------------
+    // =========================================================================
     // Consolidated generation
-    // -----------------------------------------------------------------------
+    // =========================================================================
 
     private int generateConsolidatedPdf(List<CucumberFeature> features)
             throws MojoExecutionException {
-        // Guard: if user set consolidatedReportName to blank, use the default filename
-        String effectiveName = (consolidatedReportName != null && !consolidatedReportName.isBlank())
+        String effectiveName = (consolidatedReportName != null
+                && !consolidatedReportName.isBlank())
                 ? consolidatedReportName.strip()
                 : "cucumber-report.pdf";
         String outPath = outputDirectory.getAbsolutePath()
                 + File.separator + effectiveName;
 
         try {
-            ConsolidatedPdfGenerator generator = new ConsolidatedPdfGenerator(
-                    displayDashboard,
-                    displayFeature,
-                    displayScenario,
-                    displayDetailed,
-                    displayExpanded,
-                    displayTagStats,
-                    displayFailureSummary,
-                    maxOutputLines,
-                    reportTitle,
-                    tagPrefix);
-            generator.generateReport(features, outPath);
+            new ConsolidatedPdfGenerator(
+                    displayDashboard, displayFeature, displayScenario,
+                    displayDetailed, displayExpanded, displayTagStats,
+                    displayFailureSummary, displaySlowTests,
+                    maxOutputLines, slowTestTopN,
+                    reportTitle, tagPrefix, metadata)
+                    .generateReport(features, outPath);
             getLog().info("[OK] Consolidated PDF : " + effectiveName);
             return 0;
         } catch (IOException e) {
@@ -371,9 +258,9 @@ public class SplitPdfReporterMojo extends AbstractMojo {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // F-13: Parse + deduplicate
-    // -----------------------------------------------------------------------
+    // =========================================================================
+    // JSON parsing + dedup
+    // =========================================================================
 
     private List<CucumberFeature> parseAllJsonFiles(List<File> jsonFiles)
             throws MojoExecutionException {
@@ -390,15 +277,12 @@ public class SplitPdfReporterMojo extends AbstractMojo {
                         + ": " + e.getMessage(), e);
                 continue;
             }
-
             if (features == null || features.isEmpty()) {
                 getLog().warn("No features in: " + jsonFile.getName());
                 continue;
             }
-
             getLog().info("  Parsed " + features.size()
                     + " feature(s) from " + jsonFile.getName());
-
             for (CucumberFeature f : features) {
                 String uri = f.getUri() != null ? f.getUri() : f.getName();
                 if (consolidate && byUri.containsKey(uri)) {
@@ -410,9 +294,9 @@ public class SplitPdfReporterMojo extends AbstractMojo {
         return new ArrayList<>(byUri.values());
     }
 
-    // -----------------------------------------------------------------------
-    // F-15: Split PDF generation (sequential or parallel)
-    // -----------------------------------------------------------------------
+    // =========================================================================
+    // Split PDF generation
+    // =========================================================================
 
     private int[] generateSplitPdfs(List<CucumberFeature> features)
             throws MojoExecutionException {
@@ -422,8 +306,7 @@ public class SplitPdfReporterMojo extends AbstractMojo {
         CucumberJsonParser parser = new CucumberJsonParser(verbose, tagPrefix);
 
         Stream<CucumberFeature> stream = parallel
-                ? features.parallelStream()
-                : features.stream();
+                ? features.parallelStream() : features.stream();
 
         stream.forEach(feature -> {
             try {
@@ -437,10 +320,10 @@ public class SplitPdfReporterMojo extends AbstractMojo {
                     getLog().info("  -> File    : " + filename);
                 }
 
-                FeaturePdfGenerator generator = new FeaturePdfGenerator(
+                new FeaturePdfGenerator(
                         includeSummaryPage, includeFeaturePage,
-                        includeDetailedPages, maxOutputLines, tagPrefix);
-                generator.generateFeaturePdf(feature, outputPath);
+                        includeDetailedPages, maxOutputLines, tagPrefix)
+                        .generateFeaturePdf(feature, outputPath);
 
                 getLog().info("[OK] " + filename);
                 successCount.incrementAndGet();
@@ -454,20 +337,18 @@ public class SplitPdfReporterMojo extends AbstractMojo {
             }
         });
 
-        if (!errors.isEmpty()) {
-            errors.forEach(e -> getLog().error("  " + e));
-        }
+        if (!errors.isEmpty()) errors.forEach(e -> getLog().error("  " + e));
         return new int[]{ successCount.get(), failureCount.get() };
     }
 
-    // -----------------------------------------------------------------------
+    // =========================================================================
     // Input file resolution
-    // -----------------------------------------------------------------------
+    // =========================================================================
 
     private List<File> resolveInputFiles() throws MojoExecutionException {
         if (cucumberJsonPattern != null && !cucumberJsonPattern.isBlank()) {
-            File root = (scanRoot != null) ? scanRoot : baseDir;
-            return resolveGlob(cucumberJsonPattern, root);
+            return resolveGlob(cucumberJsonPattern,
+                    scanRoot != null ? scanRoot : baseDir);
         }
         if (cucumberJson != null && cucumberJson.exists() && cucumberJson.isFile()) {
             return List.of(cucumberJson);
@@ -476,8 +357,8 @@ public class SplitPdfReporterMojo extends AbstractMojo {
     }
 
     private List<File> resolveGlob(String pattern, File root) throws MojoExecutionException {
-        Path base       = root.toPath();
-        PathMatcher m   = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
+        Path base = root.toPath();
+        PathMatcher m = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
         List<File> found = new ArrayList<>();
         try {
             Files.walkFileTree(base, new SimpleFileVisitor<>() {
@@ -498,9 +379,9 @@ public class SplitPdfReporterMojo extends AbstractMojo {
         return found;
     }
 
-    // -----------------------------------------------------------------------
+    // =========================================================================
     // Helpers
-    // -----------------------------------------------------------------------
+    // =========================================================================
 
     private String buildNoFilesMessage() {
         if (cucumberJsonPattern != null) {
@@ -513,13 +394,14 @@ public class SplitPdfReporterMojo extends AbstractMojo {
     private void ensureOutputDirectory() throws MojoExecutionException {
         if (!outputDirectory.exists() && !outputDirectory.mkdirs()) {
             throw new MojoExecutionException(
-                    "Failed to create output directory: " + outputDirectory.getAbsolutePath());
+                    "Failed to create output directory: "
+                    + outputDirectory.getAbsolutePath());
         }
     }
 
     private void banner() {
         getLog().info("================================================");
-        getLog().info("  Cucumber PDF Reporter  v1.1.6");
+        getLog().info("  Cucumber PDF Reporter  v" + VERSION);
         getLog().info("================================================");
         getLog().info("  reportMode           : " + reportMode);
         getLog().info("  cucumberJson         : "
@@ -527,7 +409,8 @@ public class SplitPdfReporterMojo extends AbstractMojo {
         getLog().info("  cucumberJsonPattern  : "
                 + (cucumberJsonPattern != null ? cucumberJsonPattern : "(none)"));
         getLog().info("  scanRoot             : "
-                + (scanRoot != null ? scanRoot.getAbsolutePath() : baseDir.getAbsolutePath()));
+                + (scanRoot != null ? scanRoot.getAbsolutePath()
+                                    : baseDir.getAbsolutePath()));
         getLog().info("  outputDirectory      : " + outputDirectory.getAbsolutePath());
         getLog().info("  consolidate (dedup)  : " + consolidate);
         getLog().info("  parallel (split)     : " + parallel);
@@ -542,9 +425,12 @@ public class SplitPdfReporterMojo extends AbstractMojo {
         getLog().info("  displayExpanded      : " + displayExpanded);
         getLog().info("  displayTagStats      : " + displayTagStats);
         getLog().info("  displayFailureSummary: " + displayFailureSummary);
+        getLog().info("  displaySlowTests     : " + displaySlowTests);
+        getLog().info("  slowTestTopN         : " + slowTestTopN);
         getLog().info("  failOnNoFeatures     : " + failOnNoFeatures);
         getLog().info("  maxOutputLines       : " + maxOutputLines);
         getLog().info("  tagPrefix            : " + tagPrefix);
+        getLog().info("  metadata configured  : " + (metadata != null && !metadata.isEmpty()));
         getLog().info("  colors configured    : " + (colors != null));
         getLog().info("================================================");
     }

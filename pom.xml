@@ -7,21 +7,17 @@
 
     <groupId>com.nosuchelements</groupId>
     <artifactId>cucumber-pdf-reporter</artifactId>
-    <version>1.4.1</version>
+    <version>1.5.0</version>
     <packaging>maven-plugin</packaging>
 
     <name>Cucumber PDF Reporter</name>
     <description>
         Maven plugin generating professional PDF reports from Cucumber JSON results.
         Supports split (one PDF per feature) and consolidated (single PDF with
-        Dashboard, Failure Summary, Features, Scenarios, Tag Statistics, Detailed,
-        and Expanded sections) report modes, plus a "both" mode that produces both
-        simultaneously.
-        Full embedding compatibility across Cucumber JVM 4.x, 5.x, 6.x, and 7.x
-        (mime_type and mimetype field variants both handled).
-        Consistent step/screenshot/error padding throughout all sections (v1.4.1).
+        Dashboard, Features, Scenarios, Detailed, and Expanded sections) report modes,
+        plus a "both" mode that produces both simultaneously.
     </description>
-    <url>https://github.com/NoSuchElements/newCucumberpdfPlugin</url>
+    <url>https://github.com/NoSuchElements/cucumber-pdf-reporter</url>
     <inceptionYear>2024</inceptionYear>
 
     <licenses>
@@ -48,15 +44,15 @@
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/NoSuchElements/newCucumberpdfPlugin.git</connection>
-        <developerConnection>scm:git:ssh://github.com/NoSuchElements/newCucumberpdfPlugin.git</developerConnection>
-        <url>https://github.com/NoSuchElements/newCucumberpdfPlugin</url>
+        <connection>scm:git:git://github.com/NoSuchElements/cucumber-pdf-reporter.git</connection>
+        <developerConnection>scm:git:ssh://github.com/NoSuchElements/cucumber-pdf-reporter.git</developerConnection>
+        <url>https://github.com/NoSuchElements/cucumber-pdf-reporter</url>
         <tag>HEAD</tag>
     </scm>
 
     <issueManagement>
         <system>GitHub Issues</system>
-        <url>https://github.com/NoSuchElements/newCucumberpdfPlugin/issues</url>
+        <url>https://github.com/NoSuchElements/cucumber-pdf-reporter/issues</url>
     </issueManagement>
 
     <properties>

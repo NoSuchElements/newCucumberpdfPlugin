@@ -39,8 +39,8 @@ public class CucumberScenario {
         if (anyFailed) return "FAILED";
         boolean anySkipped = steps.stream().anyMatch(s ->
                 "skipped".equalsIgnoreCase(s.getStatus())
-                        || "undefined".equalsIgnoreCase(s.getStatus())
-                        || "pending".equalsIgnoreCase(s.getStatus()));
+                || "undefined".equalsIgnoreCase(s.getStatus())
+                || "pending".equalsIgnoreCase(s.getStatus()));
         if (anySkipped) return "SKIPPED";
         return "PASSED";
     }
@@ -64,7 +64,7 @@ public class CucumberScenario {
     public int getSkippedSteps() {
         return (int) steps.stream()
                 .filter(s -> !"passed".equalsIgnoreCase(s.getStatus())
-                        && !"failed".equalsIgnoreCase(s.getStatus())).count();
+                          && !"failed".equalsIgnoreCase(s.getStatus())).count();
     }
 
     // -----------------------------------------------------------------------
@@ -91,9 +91,13 @@ public class CucumberScenario {
     // -----------------------------------------------------------------------
 
     /**
-     * Returns all base64 screenshot strings from step embeddings and
-     * hook embeddings in source order: before-hooks, steps, after-hooks.
-     * PNG and JPEG mime types are included.
+     * Returns all base64 screenshot strings from before-hook, step, and
+     * after-hook embeddings. PNG and JPEG mime types are included.
+     *
+     * <p>Before-hook embeddings were previously omitted — a screenshot taken
+     * by a failing {@code @Before} hook would be silently dropped in both
+     * the consolidated Expanded section and the split-mode renderer.
+     * They are now collected first so they appear in source order.</p>
      */
     public List<String> getAllScreenshots() {
         List<String> shots = new ArrayList<>();
