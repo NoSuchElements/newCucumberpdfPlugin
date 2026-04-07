@@ -1,4 +1,4 @@
-# Cucumber PDF Reporter — v1.3.0
+# Cucumber PDF Reporter — v1.4.0
 
 [![Maven Central](https://img.shields.io/maven-central/v/com.nosuchelements/cucumber-pdf-reporter.svg)](https://search.maven.org/artifact/com.nosuchelements/cucumber-pdf-reporter)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -6,6 +6,32 @@
 
 A Maven plugin that generates **professional, production-grade PDF reports** from Cucumber JSON test results.  
 Supports three modes — `split` (one PDF per feature), `consolidated` (single multi-section PDF), and `both`.
+
+---
+
+## What's New in v1.4.0
+
+v1.4.0 is a **screenshot compatibility release** that fixes silent embedding loss affecting
+users running Cucumber 5.x or 6.x, and adds a DocString fallback for older versions.
+
+### Bug Fixes
+
+| ID | Component | Summary |
+|----|-----------|-----------------------------------------------------------|
+| SC1 | `CucumberJsonParser` | **Screenshots / embeddings now captured across ALL Cucumber JVM versions (4.x – 7.x).** Previously only `"mime_type"` (with underscore) was read; Cucumber 5.x/6.x result-level embeddings use `"mimetype"` (no underscore) and were silently dropped. A new `getMimeType()` helper accepts both field variants. |
+| SC2 | `CucumberJsonParser` | **DocString content now parsed for all Cucumber versions.** Cucumber 7+ writes the field as `"content"`; Cucumber 4/5/6 use `"value"`. The parser now checks `"content"` first and falls back to `"value"`. |
+
+### Embedding Compatibility Matrix (fully covered as of v1.4.0)
+
+| JSON location | Cucumber version | API | Field name |
+|---|---|---|---|
+| `step["embeddings"]` | 4.x | `scenario.embed()` in step | `mime_type` |
+| `step["result"]["embeddings"]` | 4 / 5 | result-level | `mime_type` |
+| `step["result"]["embeddings"]` | 5 / 6 | result-level | `mimetype` (no `_`) |
+| `step["after"][n]["embeddings"]` | 7.x | `@AfterStep` | `mime_type` + optional `name` |
+| `scenario["after"][n]["embeddings"]` | 4 / 7 | `@After` | `mime_type` |
+
+No changes required to test-project code — `scenario.attach(bytes, "image/png", name)` works unchanged.
 
 ---
 
@@ -90,7 +116,7 @@ Runs `split` and `consolidated` in the same Maven execution, writing all per-fea
 <plugin>
   <groupId>com.nosuchelements</groupId>
   <artifactId>cucumber-pdf-reporter</artifactId>
-  <version>1.3.0</version>
+  <version>1.4.0</version>
   <executions>
     <execution>
       <id>generate-pdf-reports</id>
@@ -226,7 +252,7 @@ All colours are 6-character hex RGB strings **without** `#`. Invalid or absent v
 │  Page 1 — Dashboard                                             │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │  Report Title                         [PASSED / FAILED]  │  │
-│  │  Generated: 2026-04-02  14:32                            │  │
+│  │  Generated: 2026-04-07  11:41                            │  │
 │  ├──────────────┬──────────────┬─────────────┬─────────────┤  │
 │  │  Features    │  Scenarios   │  Steps      │  Duration   │  │
 │  │  9           │  26          │  112        │  4m 32s     │  │
@@ -270,12 +296,12 @@ All colours are 6-character hex RGB strings **without** `#`. Invalid or absent v
 │  Per scenario: background label + steps, before-hook logs,      │
 │  Given/When/Then keyword hierarchy, And/But continuation dots,  │
 │  red error blocks, data tables, DocStrings, output logs,        │
-│  background step errors and screenshots (NEW in v1.3.0).        │
+│  background step errors and screenshots (fixed in v1.3.0).      │
 ├─────────────────────────────────────────────────────────────────┤
 │  Page N — Expanded / Attachments  (displayExpanded=true)        │
 │  All embeddings in source order per scenario.                   │
 │  image/png + image/jpeg → full-width embedded image.            │
-│  Other MIME types → labelled placeholder (NEW in v1.3.0):       │
+│  Other MIME types → labelled placeholder (fixed in v1.3.0):     │
 │    ┌──────────────────────────────────────┐                     │
 │    │  📎  Attachment: text/plain  1.2 KB  │                     │
 │    └──────────────────────────────────────┘                     │
@@ -291,16 +317,16 @@ Each feature produces one PDF named `<feature-slug>[@<tagPrefix><caseId>].pdf`.
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  Page 1 — Feature Summary  (includeFeaturePage=true)            │
-│  Feature name, URI, tags including @QTEST_TC_* (NEW v1.3.0),    │
+│  Feature name, URI, tags including @QTEST_TC_* (fixed v1.3.0),  │
 │  overall status, scenario count, step count, duration,          │
 │  per-scenario summary list with status badges.                  │
 ├─────────────────────────────────────────────────────────────────┤
 │  Page N — Scenario Detail  (includeDetailedPages=true)          │
 │  Per scenario:                                                   │
-│    • "Background" label before background steps (NEW v1.3.0)    │
+│    • "Background" label before background steps (fixed v1.3.0)  │
 │    • Each step: keyword, name, status dot, duration             │
 │    • Error block with stack trace                               │
-│    • Embedded screenshots                                       │
+│    • Embedded screenshots (all Cucumber versions, fixed v1.4.0) │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -319,17 +345,20 @@ Each feature produces one PDF named `<feature-slug>[@<tagPrefix><caseId>].pdf`.
 
 ## Screenshot & Attachment Support
 
-Embeddings attached at any lifecycle point are captured:
+Embeddings attached at any lifecycle point are captured across **all Cucumber JVM versions** (fixed in v1.4.0):
 
 ```java
-// Cucumber 7+ (recommended)
+// Cucumber 7+ (recommended) — writes "mimetype" field
 scenario.attach(screenshotBytes, "image/png", "screenshot");
 
-// Selenium @After hook
+// Cucumber 7+ Selenium @After hook
 byte[] shot = ((TakesScreenshot) driver).getScreenshotAs(OutputType.BYTES);
 scenario.attach(shot, "image/png", "page-screenshot");
 
-// Non-image attachments (v1.3.0 — rendered as placeholder, not crash)
+// Cucumber 4.x (deprecated) — writes "mime_type" field
+scenario.embed(screenshotBytes, "image/png");  // still parsed correctly
+
+// Non-image attachments — rendered as placeholder box (v1.3.0+)
 scenario.attach(logContent.getBytes(), "text/plain", "step-log");
 ```
 
@@ -345,8 +374,8 @@ scenario.attach(logContent.getBytes(), "text/plain", "step-log");
 ## Supported Cucumber JSON Formats
 
 - **Cucumber-JVM** 4.x, 5.x, 6.x, 7.x
-- Both `mime_type` and `mimetype` embedding field names
-- Both `content` (Cucumber 7+) and `value` (older) DocString fields
+- **Both** `mime_type` **and** `mimetype` embedding field variants (fixed v1.4.0)
+- **Both** `content` (Cucumber 7+) **and** `value` (older) DocString fields (fixed v1.4.0)
 - Background steps (correctly paired to following scenarios)
 - Scenario Outline example rows (with row index context)
 - `@AfterStep` hook embeddings (SpringBDDAutomationFramework compatible)
@@ -363,8 +392,8 @@ com.nosuchelements
 ├── maven/
 │   └── GeneratePdfsMojo.java          Maven Mojo (@goal generate-pdfs)
 ├── cucumber/
-│   ├── model/                         CucumberFeature, CucumberScenario, CucumberStep
-│   └── parser/                        Gson-based JSON parser
+│   ├── CucumberJsonParser.java        Gson-based JSON parser (SC1/SC2 fixed in v1.4.0)
+│   └── model/                         CucumberFeature, CucumberScenario, CucumberStep
 ├── pdf/
 │   ├── PdfStyler.java                 Font loading, text drawing, shape helpers
 │   ├── ColorScheme.java               Named colour constants + status → colour mapping
@@ -375,7 +404,7 @@ com.nosuchelements
 │   ├── ContentBlockRenderer.java      Shared: error blocks, data tables, DocStrings,
 │   │                                  log lines, screenshot groups (CC1/CC2 fixed)
 │   ├── FeatureUtils.java              Shared: extractCaseId(), normaliseUri() (D3 fixed)
-│   ├── PluginVersion.java             FULL = "Cucumber PDF Reporter v1.3.0" (D4 fixed)
+│   ├── PluginVersion.java             FULL = "Cucumber PDF Reporter v1.4.0" (D4 fixed)
 │   ├── ReportStats.java               Aggregated pass/fail/skip counts
 │   ├── SectionHeader.java             Reusable section banner renderer
 │   ├── TableOfContents.java           Page-number registry for TOC
@@ -409,7 +438,7 @@ mvn clean deploy -Prelease
 ### Running the Plugin Locally Against Your JSON
 
 ```bash
-mvn com.nosuchelements:cucumber-pdf-reporter:1.3.0:generate-pdfs \
+mvn com.nosuchelements:cucumber-pdf-reporter:1.4.0:generate-pdfs \
   -DcucumberJson=target/cucumber.json \
   -DreportMode=both \
   -DreportOutputDir=target/pdf-reports \
@@ -419,48 +448,41 @@ mvn com.nosuchelements:cucumber-pdf-reporter:1.3.0:generate-pdfs \
 
 ---
 
-## Migration Guide — v1.2.0 → v1.3.0
+## Migration Guide — v1.3.0 → v1.4.0
 
 All existing configuration is **fully backwards compatible**. Only the version number needs updating:
 
 ```xml
 <!-- Before -->
-<version>1.2.0</version>
+<version>1.3.0</version>
 
 <!-- After -->
-<version>1.3.0</version>
+<version>1.4.0</version>
 ```
 
-**New optional parameters added in v1.3.0:**
-
-| Parameter | Default | Notes |
-|-----------|---------|-------|
-| `displayFailureSummary` | `true` | New section toggle — disable to hide the CI triage page |
-| `displayTagStats` | `true` | New section toggle — disable to hide the Tag Statistics page |
-
-No parameters were removed or renamed.
+No parameters were added, removed, or renamed. Screenshots that were silently missing in
+Cucumber 5.x / 6.x reports will now appear automatically after upgrading.
 
 ---
 
 ## Changelog
 
+### v1.4.0 (2026-04-07)
+- **SC1** — Screenshot / embedding compatibility across ALL Cucumber JVM versions (4.x–7.x).
+  Both `mime_type` and `mimetype` field variants now resolved via `getMimeType()` helper.
+- **SC2** — DocString `content` / `value` field fallback added for Cucumber 4/5/6 compatibility.
+- `pom.xml` version `1.4.0`, README and CHANGELOG updated.
+
 ### v1.3.0 (2026-04-02)
-- **15 bug fixes** across Dashboard, Failure Summary, Features, Scenarios, Tag Statistics, Detailed, Expanded, and Split sections
-- **9 enhancements** including unified sanitisation pipeline, PDF document metadata, non-image attachment placeholders, `FeatureUtils` DRY refactor, and centralised `PluginVersion` constant
-- Full `@QTEST_TC_*` tag-group separation in Tag Statistics
-- Background steps, errors, and screenshots consistently rendered across consolidated and split modes
-- `PluginVersion.FULL` = `"Cucumber PDF Reporter v1.3.0"` stamped in every section footer
+- 15 bug fixes across Dashboard, Failure Summary, Features, Scenarios, Tag Statistics, Detailed, Expanded, and Split sections
+- 9 enhancements including unified sanitisation, PDF metadata, non-image placeholders, `FeatureUtils` DRY refactor
 
 ### v1.2.0
 - Added `consolidated` and `both` report modes
-- 7-section consolidated PDF: Dashboard, Failure Summary, Features, Scenarios, Tag Statistics, Detailed, Expanded
-- `displayExpanded` toggle, `reportTitle`, `consolidatedReportName` parameters
-- Multi-module glob scanning via `cucumberJsonPattern` + `scanRoot`
+- 7-section consolidated PDF
 
 ### v1.1.x
-- Split mode stabilisation
-- `@AfterStep` embedding support
-- Scenario Outline row context bar
+- Split mode stabilisation, `@AfterStep` embedding support
 
 ### v1.0.0
 - Initial release: split mode, one PDF per feature
