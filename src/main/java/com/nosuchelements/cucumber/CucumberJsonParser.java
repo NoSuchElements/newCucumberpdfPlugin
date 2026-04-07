@@ -13,7 +13,7 @@ import java.util.*;
 /**
  * Parses Cucumber JSON report files into the internal model.
  *
- * <p>Handles the full Cucumber JSON format including:
+ * <p>Handles the full Cucumber JSON format including:</p>
  * <ul>
  *   <li>Feature-level and scenario-level tags</li>
  *   <li>Background elements (paired to following scenarios)</li>
@@ -23,6 +23,19 @@ import java.util.*;
  *   <li>DocString blocks</li>
  *   <li>Output lines</li>
  * </ul>
+ *
+ * <h2>Embedding Compatibility Matrix</h2>
+ * <p>All Cucumber JVM versions (4.x–7.x) are fully supported:</p>
+ * <pre>
+ * JSON location                        Cucumber ver  API                      Field name
+ * step["embeddings"]                   4.x           scenario.embed() in step mime_type
+ * step["result"]["embeddings"]         4/5           result-level             mime_type
+ * step["result"]["embeddings"]         5/6           result-level             mimetype (no _)
+ * step["after"][n]["embeddings"]       7.x           @AfterStep               mime_type + optional name
+ * scenario["after"][n]["embeddings"]   4/7           @After                   mime_type
+ * </pre>
+ * <p>The helper {@link #getMimeType(JsonObject)} resolves the field regardless of
+ * underscore variant, so no caller needs to know which version produced the JSON.</p>
  */
 public class CucumberJsonParser {
 
@@ -164,7 +177,8 @@ public class CucumberJsonParser {
             step.setName(str(obj, "name"));
         }
 
-        // Result
+        // Result block — carries status, duration, error, and result-level embeddings
+        // (Cucumber 4/5 place embeddings here; Cucumber 5/6 use "mimetype" without underscore)
         if (obj.has("result")) {
             JsonObject result = obj.getAsJsonObject("result");
             step.setStatus(str(result, "status"));
@@ -174,11 +188,12 @@ public class CucumberJsonParser {
             if (result.has("error_message")) {
                 step.setErrorMessage(str(result, "error_message"));
             }
-            // Embeddings on result (after-hook style)
+            // Cucumber 4/5: embeddings nested inside result
             step.getEmbeddings().addAll(parseEmbeddings(result));
         }
 
-        // Embeddings on the step directly (step-level screenshots)
+        // Step-level embeddings (Cucumber 4.x scenario.embed() called inside a step body,
+        // and Cucumber 7.x @AfterStep hook — both write here; field is "mime_type" or "mimetype")
         step.getEmbeddings().addAll(parseEmbeddings(obj));
 
         // DataTable rows
@@ -197,11 +212,16 @@ public class CucumberJsonParser {
             step.setDataTableRows(rows);
         }
 
-        // DocString
+        // DocString — Cucumber 7+ uses "content", older versions used "value"
         if (obj.has("doc_string")) {
             JsonObject ds = obj.getAsJsonObject("doc_string");
             CucumberDocString docString = new CucumberDocString();
-            docString.setContent(str(ds, "content"));
+            // Prefer "content" (Cucumber 7+), fall back to "value" (Cucumber 4/5/6)
+            if (ds.has("content")) {
+                docString.setContent(str(ds, "content"));
+            } else if (ds.has("value")) {
+                docString.setContent(str(ds, "value"));
+            }
             docString.setContentType(str(ds, "content_type"));
             step.setDocString(docString);
         }
@@ -218,17 +238,53 @@ public class CucumberJsonParser {
         return step;
     }
 
+    /**
+     * Extracts base64-encoded image data from an "embeddings" array on the given object.
+     *
+     * <p>Compatibility matrix handled here:</p>
+     * <ul>
+     *   <li>Cucumber 4.x / 5.x / 7.x @After: field is {@code "mime_type"} (with underscore)</li>
+     *   <li>Cucumber 5.x / 6.x result-level: field is {@code "mimetype"} (no underscore)</li>
+     *   <li>Cucumber 7.x @AfterStep: field is {@code "mime_type"}, optional {@code "name"} field present</li>
+     * </ul>
+     * <p>The {@link #getMimeType(JsonObject)} helper resolves both variants transparently.</p>
+     *
+     * @param obj a JSON object that may contain an "embeddings" array
+     * @return list of base64 strings for all image/* embeddings found; empty if none
+     */
     private List<String> parseEmbeddings(JsonObject obj) {
         List<String> result = new ArrayList<>();
         if (!obj.has("embeddings")) return result;
         for (JsonElement el : obj.getAsJsonArray("embeddings")) {
+            if (!el.isJsonObject()) continue;
             JsonObject emb = el.getAsJsonObject();
-            String mime = str(emb, "mime_type");
+            String mime = getMimeType(emb);
             if (mime.startsWith("image/") && emb.has("data")) {
                 result.add(emb.get("data").getAsString());
             }
         }
         return result;
+    }
+
+    /**
+     * Resolves the MIME type from an embedding object, handling all Cucumber versions:
+     * <ul>
+     *   <li>{@code "mime_type"} — Cucumber 4.x, 5.x, 7.x (@After and @AfterStep hooks)</li>
+     *   <li>{@code "mimetype"}  — Cucumber 5.x/6.x result-level embeddings (no underscore)</li>
+     * </ul>
+     * Checks {@code "mime_type"} first (more common), then falls back to {@code "mimetype"}.
+     *
+     * @param emb the embedding JSON object
+     * @return the resolved MIME type string, or empty string if neither field is present
+     */
+    private static String getMimeType(JsonObject emb) {
+        if (emb.has("mime_type") && !emb.get("mime_type").isJsonNull()) {
+            return emb.get("mime_type").getAsString();
+        }
+        if (emb.has("mimetype") && !emb.get("mimetype").isJsonNull()) {
+            return emb.get("mimetype").getAsString();
+        }
+        return "";
     }
 
     private List<String> parseTags(JsonObject obj) {
