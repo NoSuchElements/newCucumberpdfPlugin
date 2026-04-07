@@ -7,7 +7,7 @@
 
     <groupId>com.nosuchelements</groupId>
     <artifactId>cucumber-pdf-reporter</artifactId>
-    <version>1.3.0</version>
+    <version>1.4.0</version>
     <packaging>maven-plugin</packaging>
 
     <name>Cucumber PDF Reporter</name>
@@ -17,6 +17,8 @@
         Dashboard, Failure Summary, Features, Scenarios, Tag Statistics, Detailed,
         and Expanded sections) report modes, plus a "both" mode that produces both
         simultaneously.
+        Full embedding compatibility across Cucumber JVM 4.x, 5.x, 6.x, and 7.x
+        (mime_type and mimetype field variants both handled).
     </description>
     <url>https://github.com/NoSuchElements/newCucumberpdfPlugin</url>
     <inceptionYear>2024</inceptionYear>
