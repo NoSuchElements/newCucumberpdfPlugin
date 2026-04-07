@@ -5,6 +5,78 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.0] — 2026-04-07
+
+### Fixed
+
+- **SC1 — Screenshot / embedding compatibility across all Cucumber JVM versions**
+  `CucumberJsonParser.parseEmbeddings()` previously read only `"mime_type"` (with
+  underscore), causing screenshots to be silently dropped when the report was produced
+  by Cucumber 5.x / 6.x, which writes `"mimetype"` (no underscore) in result-level
+  embeddings.  A new private helper `getMimeType(JsonObject)` now checks `"mime_type"`
+  first and falls back to `"mimetype"`, covering every location and version in the
+  compatibility matrix:
+
+  | JSON location | Cucumber version | API | Field name |
+  |---|---|---|---|
+  | `step["embeddings"]` | 4.x | `scenario.embed()` in step | `mime_type` |
+  | `step["result"]["embeddings"]` | 4 / 5 | result-level | `mime_type` |
+  | `step["result"]["embeddings"]` | 5 / 6 | result-level | `mimetype` (no `_`) |
+  | `step["after"][n]["embeddings"]` | 7.x | `@AfterStep` | `mime_type` + optional `name` |
+  | `scenario["after"][n]["embeddings"]` | 4 / 7 | `@After` | `mime_type` |
+
+  No changes are required in test-project code.  `scenario.attach(bytes, "image/png", name)`
+  continues to work unchanged with Cucumber 7.x.
+
+- **SC2 — DocString `content` / `value` field fallback**
+  Cucumber 7+ writes DocString text into `"content"`; Cucumber 4 / 5 / 6 use `"value"`.
+  The parser now checks `"content"` first and falls back to `"value"` so DocStrings
+  render correctly regardless of Cucumber version.
+
+### Changed
+- `pom.xml` version bumped to `1.4.0`
+- `README.md` — version badge, What's New section, Screenshot & Attachment section,
+  Supported Cucumber JSON Formats table, and running-locally command updated to `1.4.0`
+
+---
+
+## [1.3.0] — 2026-04-02
+
+### Fixed
+
+| ID | Section | Summary |
+|----|---------|-----------------------------------------------------------|
+| D1 | Dashboard | Overflow pages (>14 features) now redraw the `#F5F7FA` page background — previously pages were white |
+| D2 | Dashboard | Section footer is now stamped on the **first** Dashboard page, not the current (overflow) page |
+| D5 | Detailed | `@Before` hook output logs are now rendered (were silently dropped) |
+| D6 | Detailed | Scenario header duration label uses precise font-metric width instead of character-count approximation — no more overlap |
+| D7 | Detailed | Background step **errors and screenshots** now render inline, matching the Failure Summary treatment |
+| F1 | Failure Summary | SKIPPED step screenshots now guarded — only rendered for truly failed steps |
+| F2 | Failure Summary | Section subtitle correctly shows `N failing / M skipped` instead of always saying `N failing` |
+| F4 | Features | Windows-style `file:///C:/` URI prefix is now fully stripped (`replaceFirst("^file:/{1,3}", "")`) |
+| F5 | Features | Footer `hLine` and summary text no longer overlap due to premature `cur.advance()` before stream opens |
+| S1 | Scenarios | Tag overflow-count suffix (e.g. `+3`) no longer clipped by column truncation |
+| T1 | Tag Statistics | Empty-tag path now uses a proper `ConsolidatedPageCursor` — page footer and page-number registry are consistent |
+| E1 | Expanded | Scenario header now reserves space for header **plus at least one image** before drawing — orphan headers eliminated |
+| SP1 | Split | `"Background"` label is now drawn before background steps in split-mode PDFs |
+| SP2 | Split | `generateFilename` now accepts a `tagPrefix` parameter and scans `feature.getTags()` when `qtestCaseId` is null |
+| CC1 | All sections | `ContentBlockRenderer.renderErrorBlock()` now uses the configured `maxOutputLines` (pass `-1`) instead of hardcoded literals |
+
+### Enhancements
+
+| ID | Section | Summary |
+|----|---------|-----------------------------------------------------------|
+| D3 | Dashboard / Features | `extractCaseId()` deduplicated into shared `FeatureUtils` utility class |
+| D4 | All footers | Version string centralised in `PluginVersion.FULL` — no more hardcoded `"v1.2.0"` in three places |
+| E2 | Expanded | Non-image MIME-type embeddings (text/plain, application/json, etc.) render a labelled placeholder box instead of crashing on `createFromByteArray` |
+| F3 | Failure Summary | Failed/skipped steps now show **both** the status label and step duration in the right column |
+| S2 | Scenarios | Scenario Outline example rows show `—` in the tag column instead of repeating the same overflow tags on every row |
+| T2 | Tag Statistics | `@QTEST_TC_*` tags (matching `tagPrefix`) are sorted into their own group and rendered after functional tags |
+| SP3 | Split | Feature-level tags (e.g. `@QTEST_TC_1001`, `@smoke`) now shown in the split-mode feature summary page |
+| CC2 | All sections | Sanitisation pipeline unified: `ContentBlockRenderer.sanitiseLogLine()` (handles `\t`) feeds into `PdfStyler.sanitise()` (handles remaining control chars < 32) |
+| CC3 | All generators | PDF document metadata now set on every generated file: `title`, `producer` (`Cucumber PDF Reporter v1.3.0`), and `creationDate` |
+
+---
 
 ## [1.2.0] Completion additions — 2025-06-10
 
@@ -26,63 +98,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - Removed dead `pageReg` (PageNumberRegistry) variable from `ConsolidatedPdfGenerator`
-  (was created but never passed to section cursors — page numbering works correctly
-  via the second-pass `stampPageNumbers` loop which needs no registry)
 - Removed unused `PageNumberRegistry` import from `ConsolidatedPdfGenerator`
-- Replaced wasteful `countPages(String)` helper (re-opened saved file) with
-  `doc.getNumberOfPages()` on the still-open document
+- Replaced wasteful `countPages(String)` helper with `doc.getNumberOfPages()`
 
 ### Changed
-- `ScenariosSection` column layout adjusted to fit Tags column:
-  Name truncated to 30 chars, Tags max 20 chars (2 tags + overflow count)
-- `FeaturesSection` column layout adjusted: Name truncated to 30 chars,
-  new Case ID column at 40% of content width
+- `ScenariosSection` column layout adjusted to fit Tags column
+- `FeaturesSection` column layout adjusted with new Case ID column
 
 ---
 
 ## [1.2.0] — 2025-06-10
 
 ### Added
-- **`reportMode` parameter** — controls which PDF(s) are generated:
-  - `split` — one PDF per feature (original v1.x behaviour, default)
-  - `consolidated` — single PDF with all sections (grasshopper7 layout)
-  - `both` — generates both simultaneously in one execution
-- **`DashboardSection`** — overall metric cards (features / scenarios / steps / duration),
-  segmented distribution bars with legend, and a features-at-a-glance table
-- **`FeaturesSection`** — full feature table with URI, status, counts, and progress bars
-- **`ScenariosSection`** — all scenarios grouped by feature with mini progress bars
-- **`DetailedSection`** — step-by-step breakdown: keyword hierarchy (F-01 And/But),
-  error blocks, step output logs, data tables, and DocStrings
-- **`TagStatsSection`** — per-tag scenario pass/fail/skip table sorted by failure
-  count; includes inline progress bars and pass-rate percentages
-- **`ExpandedSection`** — screenshots grouped by scenario (opt-in via `displayExpanded=true`)
-- **`ContentBlockRenderer`** — shared drawing primitive used by both Detailed and
-  Expanded sections; eliminates all rendering duplication
-- **Two-pass page numbering** — `ConsolidatedPdfGenerator.stampPageNumbers()` stamps
-  "Page N of T" in the footer of every page after the document is fully built
-- **`ConsolidatedPageCursor.PageNumberRegistry`** — thread-safe page-index collector
-  for the second-pass stamper
-- **New Mojo parameters:**
-  - `consolidatedReportName` — output filename (default: `cucumber-report.pdf`)
-  - `reportTitle` — Dashboard page title
-  - `displayDashboard`, `displayFeature`, `displayScenario`, `displayDetailed`,
-    `displayExpanded`, `displayTagStats` — section visibility flags
-- **`ConsolidatedPdfGeneratorIT`** — 6 integration tests covering full report,
-  dashboard-only, screenshots, `ReportStats` accuracy, custom title, and
-  tag-stats collection
+- **`reportMode` parameter** — `split`, `consolidated`, `both`
+- **`DashboardSection`**, **`FeaturesSection`**, **`ScenariosSection`**,
+  **`DetailedSection`**, **`TagStatsSection`**, **`ExpandedSection`**
+- Two-pass page numbering
+- `ConsolidatedPageCursor.PageNumberRegistry`
+- New Mojo parameters: `consolidatedReportName`, `reportTitle`, section visibility flags
+- `ConsolidatedPdfGeneratorIT` — 6 integration tests
 
 ### Changed
-- `SplitPdfReporterMojo` extended with all consolidated parameters; all existing
-  split-mode parameters remain unchanged — no breaking changes to v1.x configurations
-- `pom.xml` version bumped to `1.2.0`; description updated to cover both modes
-- `README.md` fully rewritten with parameter reference table, layout diagrams,
-  and configuration examples for all three modes
-
-### Architecture
-- New package `com.nosuchelements.consolidated` with 5 supporting classes
-- New package `com.nosuchelements.consolidated.sections` with 6 section classes
-- Zero changes to existing model classes (`CucumberFeature`, `CucumberScenario`,
-  `CucumberStep`, etc.) — purely additive
+- `pom.xml` version bumped to `1.2.0`
+- `README.md` fully rewritten
 
 ---
 
@@ -93,7 +131,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - F-08: Step name word-wrap across two lines in `DetailedPage`
 - F-13: Multi-module JSON consolidation (`consolidate`, `scanRoot`, `cucumberJsonPattern`)
 - F-15: Parallel PDF generation (`parallel=true`)
-- F-16-config: Configurable tag prefix (`tagPrefix`) — supports JIRA, RALLY, custom prefixes
+- F-16-config: Configurable tag prefix (`tagPrefix`)
 - F-10: Runtime colour overrides via `<colors>` configuration block
 - F-06: Visual distinction between `undefined`/`pending` (violet) and `skipped` (amber)
 
@@ -110,15 +148,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - F-02: Scenario-level tags in detail page header band
 - F-03: Scenario Outline row context bar
 - F-04: Configurable output log line limit (`maxOutputLines`)
-- F-05: Continuation page context header ("[continued] ScenarioName")
+- F-05: Continuation page context header
 
 ---
 
 ## [1.1.1] — 2025-02-xx
 
 ### Changed
-- Removed SummaryPage from default page set (parameter `includeSummaryPage` retained but ignored)
-- FeaturePage redesigned: modern slate/indigo colour palette, metric cards, progress bar, scenario list
+- Removed SummaryPage from default page set
+- FeaturePage redesigned: modern slate/indigo colour palette
 
 ---
 
