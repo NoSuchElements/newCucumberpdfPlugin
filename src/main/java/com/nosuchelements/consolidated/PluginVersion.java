@@ -9,10 +9,10 @@ package com.nosuchelements.consolidated;
 public final class PluginVersion {
 
     /** Full product label used in PDF footers and document metadata. */
-    public static final String FULL = "Cucumber PDF Reporter v1.2.1";
+    public static final String FULL = "Cucumber PDF Reporter v1.4.1";
 
     /** Bare version number (no product name). */
-    public static final String NUMBER = "1.2.1";
+    public static final String NUMBER = "1.4.1";
 
     private PluginVersion() {}
 }

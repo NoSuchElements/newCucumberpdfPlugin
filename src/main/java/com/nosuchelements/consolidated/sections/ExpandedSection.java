@@ -32,6 +32,9 @@ import java.util.List;
  *       {@code renderErrorBlock} calls pass {@code -1} to respect configured
  *       {@code maxOutputLines} rather than a hardcoded 20.</li>
  *   <li><b>D4</b> – Footer uses {@link PluginVersion#FULL}.</li>
+ *   <li><b>SP-6</b> – Post-step trailing gap increased from {@code 4f} to
+ *       {@code 8f} to match DetailedSection, giving a clear visual break
+ *       between a step's last content block and the next step's bullet.</li>
  * </ul>
  */
 public class ExpandedSection {
@@ -41,6 +44,12 @@ public class ExpandedSection {
     private static final float SHDR = 38f;
     private static final float LMD  = 15f;
     private static final float DUR_CHAR_W = 5.0f;
+
+    /**
+     * SP-6: trailing gap after the last content block of a step.
+     * Increased from 4f → 8f, matching DetailedSection.
+     */
+    private static final float STEP_TRAIL_GAP = 8f;
 
     private final PdfStyler            styler;
     private final ContentBlockRenderer renderer;
@@ -162,7 +171,6 @@ public class ExpandedSection {
                             M, cur.y, styler.boldFont(), 8f, ColorScheme.FAILED_TEXT);
                 }
                 cur.advance(LMD);
-                // CC1 fix: -1 → configured maxOutputLines
                 renderer.renderErrorBlock(cur, err, -1);
             }
             if (!step.getEmbeddings().isEmpty()) {
@@ -249,9 +257,9 @@ public class ExpandedSection {
         }
         cur.advance(nml.length > 1 ? LMD * 2f : LMD);
 
+        // Per-step content blocks — each renderer method adds its own BLOCK_GAP_BEFORE
         String err = step.getErrorMessage();
         if (err != null && !err.isEmpty()) {
-            // CC1 fix: -1 → configured maxOutputLines
             renderer.renderErrorBlock(cur, err, -1);
         }
         if (!step.getOutputLines().isEmpty()) {
@@ -268,7 +276,8 @@ public class ExpandedSection {
         if (!step.getEmbeddings().isEmpty()) {
             renderer.renderScreenshotGroup(cur, step.getEmbeddings(), true);
         }
-        cur.advance(4f);
+        // SP-6: increased from 4f → 8f — clear gap before next step's bullet
+        cur.advance(STEP_TRAIL_GAP);
     }
 
     private void drawSectionFooter(ConsolidatedPageCursor cur) throws IOException {
@@ -276,7 +285,6 @@ public class ExpandedSection {
                 cur.doc, cur.page, PDPageContentStream.AppendMode.APPEND, true)) {
             float W = ConsolidatedPageCursor.PAGE_W;
             styler.hLine(cs, M, W - M, 28f, ColorScheme.BORDER, 0.4f);
-            // D4: PluginVersion
             styler.drawText(cur.doc, cs,
                     PluginVersion.FULL + "  |  Expanded Steps",
                     M, 14f, styler.regularFont(), 7f, ColorScheme.TEXT_HINT);

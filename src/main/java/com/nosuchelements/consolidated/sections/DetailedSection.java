@@ -34,6 +34,9 @@ import java.util.List;
  *       {@link ContentBlockRenderer} uses the configured {@code maxOutputLines}
  *       rather than a hardcoded magic number.</li>
  *   <li><b>D4</b> – Footer uses {@link PluginVersion#FULL}.</li>
+ *   <li><b>SP-5</b> – Post-step trailing gap increased from {@code 4f} to
+ *       {@code 8f} so there is a clear visual separation between the last
+ *       content block of one step and the dot/keyword of the next step.</li>
  * </ul>
  */
 public class DetailedSection {
@@ -45,6 +48,13 @@ public class DetailedSection {
 
     /** Approximate character width for the footer font (7f). */
     private static final float DUR_CHAR_W = 5.0f;
+
+    /**
+     * SP-5: trailing gap after the last content block of a step.
+     * Increased from 4f → 8f so the next step's bullet clearly belongs to
+     * the next row rather than the previous one's attachments.
+     */
+    private static final float STEP_TRAIL_GAP = 8f;
 
     private final PdfStyler            styler;
     private final ContentBlockRenderer renderer;
@@ -117,7 +127,6 @@ public class DetailedSection {
         String st       = sc.getStatus();
         String featName = trunc(safe(feature.getName()), 65);
         String scenName = trunc(safe(sc.getName()), 68);
-        float  W        = ConsolidatedPageCursor.PAGE_W;
 
         try (PDPageContentStream cs = cs(cur)) {
             styler.fillRect(cs, M, cur.y - SHDR, CW, SHDR, ColorScheme.HEADER);
@@ -135,7 +144,7 @@ public class DetailedSection {
             styler.drawText(cur.doc, cs, st,
                     bX + 6f, bMid - 4f, styler.boldFont(), 8.5f, ColorScheme.TEXT_WHITE);
 
-            // D6 fix: compute x from actual string width, not char count * arbitrary constant
+            // D6 fix: compute x from actual string width
             String dur = sc.formatDuration();
             float durW = dur.length() * DUR_CHAR_W;
             styler.drawText(cur.doc, cs, dur,
@@ -188,7 +197,6 @@ public class DetailedSection {
                             M, cur.y, styler.boldFont(), 8f, ColorScheme.FAILED_TEXT);
                 }
                 cur.advance(LMD);
-                // CC1 fix: pass -1 to use configured maxOutputLines
                 renderer.renderErrorBlock(cur, err, -1);
             }
 
@@ -233,7 +241,6 @@ public class DetailedSection {
                             styler.boldFont(), 8.5f, ColorScheme.FAILED_TEXT);
                 }
                 cur.advance(LMD);
-                // CC1 fix: -1 → use configured maxOutputLines
                 renderer.renderErrorBlock(cur, err, -1);
             }
 
@@ -303,10 +310,9 @@ public class DetailedSection {
 
         cur.advance(nml.length > 1 ? LMD * 2f : LMD);
 
-        // Per-step content blocks
+        // Per-step content blocks — each renderer method adds its own BLOCK_GAP_BEFORE
         String err = step.getErrorMessage();
         if (err != null && !err.isEmpty()) {
-            // CC1 fix: -1 → configured maxOutputLines
             renderer.renderErrorBlock(cur, err, -1);
         }
         if (!step.getOutputLines().isEmpty()) {
@@ -322,7 +328,8 @@ public class DetailedSection {
             renderer.renderScreenshotGroup(cur, step.getEmbeddings(), true);
         }
 
-        cur.advance(4f);
+        // SP-5: increased from 4f → 8f — clear gap before next step's bullet
+        cur.advance(STEP_TRAIL_GAP);
     }
 
     // -----------------------------------------------------------------------
@@ -334,7 +341,6 @@ public class DetailedSection {
                 cur.doc, cur.page, PDPageContentStream.AppendMode.APPEND, true)) {
             float W = ConsolidatedPageCursor.PAGE_W;
             styler.hLine(cs, M, W - M, 28f, ColorScheme.BORDER, 0.4f);
-            // D4: PluginVersion constant
             styler.drawText(cur.doc, cs,
                     PluginVersion.FULL + "  |  Detailed Steps",
                     M, 14f, styler.regularFont(), 7f, ColorScheme.TEXT_HINT);

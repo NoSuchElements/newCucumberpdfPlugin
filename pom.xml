@@ -7,7 +7,7 @@
 
     <groupId>com.nosuchelements</groupId>
     <artifactId>cucumber-pdf-reporter</artifactId>
-    <version>1.4.0</version>
+    <version>1.4.1</version>
     <packaging>maven-plugin</packaging>
 
     <name>Cucumber PDF Reporter</name>
@@ -19,6 +19,7 @@
         simultaneously.
         Full embedding compatibility across Cucumber JVM 4.x, 5.x, 6.x, and 7.x
         (mime_type and mimetype field variants both handled).
+        Consistent step/screenshot/error padding throughout all sections (v1.4.1).
     </description>
     <url>https://github.com/NoSuchElements/newCucumberpdfPlugin</url>
     <inceptionYear>2024</inceptionYear>

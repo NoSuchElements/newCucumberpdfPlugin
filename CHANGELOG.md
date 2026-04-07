@@ -5,38 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.1] — 2026-04-07
+
+### Fixed — Step / Screenshot / Error spacing & padding
+
+All sections that render step detail (Detailed, Expanded, Failure Summary) previously
+had no breathing room between a step's separator line and the content blocks below it
+(errors, log output, data tables, DocStrings, screenshots). Elements appeared
+immediately adjacent, making the PDF visually dense and hard to scan.
+
+| ID | Component | Change |
+|----|-----------|--------|
+| SP-1 | `ContentBlockRenderer.renderErrorBlock` | Added `BLOCK_GAP_BEFORE = 5pt` before every error block |
+| SP-1 | `ContentBlockRenderer.renderLogs` | Added `BLOCK_GAP_BEFORE = 5pt` before every log block |
+| SP-1 | `ContentBlockRenderer.renderDataTable` | Added `BLOCK_GAP_BEFORE = 5pt` before every data table |
+| SP-1 | `ContentBlockRenderer.renderDocString` | Added `BLOCK_GAP_BEFORE = 5pt` before every DocString block |
+| SP-2 | `ContentBlockRenderer.renderScreenshotGroup` | Added `SCREENSHOT_GAP_BEFORE = 8pt` before the first screenshot (or its label) |
+| SP-3 | `ContentBlockRenderer.renderScreenshotGroup` | Inter-screenshot gap increased from hard-coded `6pt` → `INTER_SCREENSHOT_GAP = 10pt` |
+| SP-4 | `ContentBlockRenderer.renderSingleScreenshot` | Card bottom padding increased `12pt` → `16pt`; `ensureSpace` updated accordingly |
+| SP-5 | `DetailedSection.renderStep` | Post-step trailing gap `4pt` → `STEP_TRAIL_GAP = 8pt` |
+| SP-6 | `ExpandedSection.renderStep` | Post-step trailing gap `4pt` → `STEP_TRAIL_GAP = 8pt` |
+
+### Changed
+- `PluginVersion.FULL` / `NUMBER` bumped to `1.4.1`
+- `pom.xml` version bumped to `1.4.1`
+
+---
+
 ## [1.4.0] — 2026-04-07
 
 ### Fixed
 
-- **SC1 — Screenshot / embedding compatibility across all Cucumber JVM versions**
-  `CucumberJsonParser.parseEmbeddings()` previously read only `"mime_type"` (with
-  underscore), causing screenshots to be silently dropped when the report was produced
-  by Cucumber 5.x / 6.x, which writes `"mimetype"` (no underscore) in result-level
-  embeddings.  A new private helper `getMimeType(JsonObject)` now checks `"mime_type"`
-  first and falls back to `"mimetype"`, covering every location and version in the
-  compatibility matrix:
-
-  | JSON location | Cucumber version | API | Field name |
-  |---|---|---|---|
-  | `step["embeddings"]` | 4.x | `scenario.embed()` in step | `mime_type` |
-  | `step["result"]["embeddings"]` | 4 / 5 | result-level | `mime_type` |
-  | `step["result"]["embeddings"]` | 5 / 6 | result-level | `mimetype` (no `_`) |
-  | `step["after"][n]["embeddings"]` | 7.x | `@AfterStep` | `mime_type` + optional `name` |
-  | `scenario["after"][n]["embeddings"]` | 4 / 7 | `@After` | `mime_type` |
-
-  No changes are required in test-project code.  `scenario.attach(bytes, "image/png", name)`
-  continues to work unchanged with Cucumber 7.x.
-
-- **SC2 — DocString `content` / `value` field fallback**
-  Cucumber 7+ writes DocString text into `"content"`; Cucumber 4 / 5 / 6 use `"value"`.
-  The parser now checks `"content"` first and falls back to `"value"` so DocStrings
-  render correctly regardless of Cucumber version.
-
-### Changed
-- `pom.xml` version bumped to `1.4.0`
-- `README.md` — version badge, What's New section, Screenshot & Attachment section,
-  Supported Cucumber JSON Formats table, and running-locally command updated to `1.4.0`
+- **SC1** — Screenshot / embedding compatibility across ALL Cucumber JVM versions (4.x–7.x).
+  Both `mime_type` and `mimetype` field variants now resolved via `getMimeType()` helper.
+- **SC2** — DocString `content` / `value` field fallback added for Cucumber 4/5/6 compatibility.
+- `pom.xml` version `1.4.0`, README and CHANGELOG updated.
 
 ---
 
@@ -81,29 +84,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [1.2.0] Completion additions — 2025-06-10
 
 ### Added
-- **`FailureSummarySection`** — CI triage page inserted immediately after Dashboard,
-  showing every FAILED and SKIPPED scenario with full step detail and error messages.
-  When all scenarios pass, a green "All scenarios passed" banner is rendered instead.
-  Controlled by `displayFailureSummary` (default `true`).
-- **`FeaturesSection` — Case ID column** — `tagPrefix` is now fully used; each feature
-  row displays its extracted case ID (e.g. `TC-1234`) in an accent-coloured column.
-  Features without a matching tag show an em-dash.
-- **`ScenariosSection` — Tags column** — each scenario row now shows its first two tags
-  in italic muted text. More than two tags are summarised as `+N`.
+- **`FailureSummarySection`** — CI triage page inserted immediately after Dashboard.
+- **`FeaturesSection` — Case ID column** — `tagPrefix` fully used.
+- **`ScenariosSection` — Tags column** — each scenario row shows first two tags.
 - **`ConsolidatedPdfGenerator` — 10-arg constructor** adding `displayFailureSummary`.
-  Legacy 8-arg and 9-arg constructors kept for backward compatibility.
-- **`ConsolidatedCompletionIT`** — 9 integration tests covering all three completion
-  items plus section ordering, all-pass banner, And/But keyword rendering in
-  FailureSummarySection, and 8-arg constructor backward compatibility.
+- **`ConsolidatedCompletionIT`** — 9 integration tests.
 
 ### Fixed
-- Removed dead `pageReg` (PageNumberRegistry) variable from `ConsolidatedPdfGenerator`
-- Removed unused `PageNumberRegistry` import from `ConsolidatedPdfGenerator`
+- Removed dead `pageReg` variable from `ConsolidatedPdfGenerator`
 - Replaced wasteful `countPages(String)` helper with `doc.getNumberOfPages()`
-
-### Changed
-- `ScenariosSection` column layout adjusted to fit Tags column
-- `FeaturesSection` column layout adjusted with new Case ID column
 
 ---
 
@@ -115,48 +104,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   **`DetailedSection`**, **`TagStatsSection`**, **`ExpandedSection`**
 - Two-pass page numbering
 - `ConsolidatedPageCursor.PageNumberRegistry`
-- New Mojo parameters: `consolidatedReportName`, `reportTitle`, section visibility flags
-- `ConsolidatedPdfGeneratorIT` — 6 integration tests
-
-### Changed
-- `pom.xml` version bumped to `1.2.0`
-- `README.md` fully rewritten
 
 ---
 
 ## [1.1.6] — 2025-04-xx
 
 ### Added
-- F-07: Adaptive feature/scenario name font size and two-line wrapping in headers
-- F-08: Step name word-wrap across two lines in `DetailedPage`
-- F-13: Multi-module JSON consolidation (`consolidate`, `scanRoot`, `cucumberJsonPattern`)
-- F-15: Parallel PDF generation (`parallel=true`)
-- F-16-config: Configurable tag prefix (`tagPrefix`)
-- F-10: Runtime colour overrides via `<colors>` configuration block
-- F-06: Visual distinction between `undefined`/`pending` (violet) and `skipped` (amber)
-
-### Fixed
-- Screenshots attached in `@After` hooks now correctly discovered via `CucumberScenario.getAllScreenshots()`
-- CRLF stack traces no longer cause WinAnsiEncoding crashes in `PdfStyler.sanitise()`
-
----
-
-## [1.1.3] — 2025-03-xx
-
-### Added
-- F-01: And/But keyword visual hierarchy (italic, extra indent)
-- F-02: Scenario-level tags in detail page header band
-- F-03: Scenario Outline row context bar
-- F-04: Configurable output log line limit (`maxOutputLines`)
-- F-05: Continuation page context header
-
----
-
-## [1.1.1] — 2025-02-xx
-
-### Changed
-- Removed SummaryPage from default page set
-- FeaturePage redesigned: modern slate/indigo colour palette
+- F-07: Adaptive font size and two-line wrapping
+- F-08: Step name word-wrap
+- F-13: Multi-module JSON consolidation
+- F-15: Parallel PDF generation
+- F-16-config: Configurable tag prefix
+- F-10: Runtime colour overrides
+- F-06: Visual distinction between undefined/pending and skipped
 
 ---
 
@@ -164,7 +124,3 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - Initial release
-- One PDF per Cucumber feature from JSON results
-- FeaturePage + DetailedPage structure
-- Apache PDFBox 2.0.30 baseline
-- Basic colour scheme (green/red/amber)
