@@ -1,6 +1,7 @@
 package com.nosuchelements.consolidated.sections;
 
 import com.nosuchelements.consolidated.ConsolidatedPageCursor;
+import com.nosuchelements.consolidated.FeatureUtils;
 import com.nosuchelements.consolidated.ReportStats;
 import com.nosuchelements.consolidated.SectionHeader;
 import com.nosuchelements.consolidated.TableOfContents;
@@ -20,35 +21,6 @@ import java.util.List;
 
 /**
  * Dashboard page — single-page overview of the entire test run.
- *
- * <h3>Layout</h3>
- * <pre>
- *  ┌──────────────────────────────────────────────────────────────────────┐
- *  │  [Report Title]                                   [PASSED / FAILED]  │
- *  │  Generated: 2025-06-10  14:32  •  Cucumber PDF Reporter v1.5.0       │
- *  └──────────────────────────────────────────────────────────────────────┘
- *
- *  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
- *  │  Features  │  │ Scenarios  │  │   Steps    │  │  Duration  │
- *  │     12     │  │    47      │  │   312      │  │   4m 32s   │
- *  └────────────┘  └────────────┘  └────────────┘  └────────────┘
- *
- *  Scenarios Distribution ━━━━━━━━━━━━━━━━━━━━━━━━━━━━  91%
- *  Steps Distribution     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━  95%
- *
- *  [Environment Metadata block — if configured]
- *
- *  Features at a Glance
- *  # │ Feature │ Case ID │ Status │ Scenarios │ Progress │ Duration
- * </pre>
- *
- * <h3>v1.5.0 additions</h3>
- * <ul>
- *   <li>Environment / build metadata block (when configured)</li>
- *   <li>Accurate pass-rate percentage labels on distribution bars</li>
- *   <li>Version string updated to v1.5.0</li>
- *   <li>Footer text aligned with page-number stamp (avoids overlap)</li>
- * </ul>
  */
 public class DashboardSection {
 
@@ -57,7 +29,6 @@ public class DashboardSection {
     private static final float CARD = 72f;
     private static final float GAP  = 8f;
     private static final float ROW  = 18f;
-    static final String VERSION = "1.5.0";
 
     private final PdfStyler     s;
     private final String        reportTitle;
@@ -141,7 +112,7 @@ public class DashboardSection {
             s.drawText(cur.doc, cs, reportTitle,
                     M, top - 18f, s.boldFont(), tf, ColorScheme.TEXT_WHITE);
             s.drawText(cur.doc, cs, "Generated: " + ts
-                    + "   \u2022   Cucumber PDF Reporter v" + VERSION,
+                    + "   |   Cucumber PDF Reporter v" + FeatureUtils.VERSION,
                     M, top - 37f, s.regularFont(), 8.5f, ColorScheme.TEXT_HINT);
 
             // Overall status badge
@@ -324,7 +295,7 @@ public class DashboardSection {
     private void drawGlanceRow(ConsolidatedPageCursor cur, CucumberFeature f,
                                 int idx, boolean alt) throws IOException {
         String st     = f.getOverallStatus();
-        String caseId = extractCaseId(f);
+        String caseId = FeatureUtils.extractCaseId(f, tagPrefix);
         long   dur    = f.getActualScenarios().stream()
                          .mapToLong(sc -> sc.getDurationMillis()).sum();
 
@@ -338,7 +309,7 @@ public class DashboardSection {
                     M + 18f, ry, s.regularFont(), 8.5f, ColorScheme.TEXT_SECONDARY);
             s.drawText(cur.doc, cs, trunc(caseId, 12),
                     M + CW * .44f, ry, s.regularFont(), 7.5f,
-                    "\u2014".equals(caseId) ? ColorScheme.TEXT_HINT : ColorScheme.ACCENT);
+                    "NA".equals(caseId) ? ColorScheme.TEXT_HINT : ColorScheme.ACCENT);
             s.drawText(cur.doc, cs, st, M + CW * .56f, ry,
                     s.boldFont(), 7.5f, ColorScheme.textForStatus(st));
             s.drawText(cur.doc, cs,
@@ -363,7 +334,7 @@ public class DashboardSection {
             float W = ConsolidatedPageCursor.PAGE_W;
             s.hLine(cs, M, W - M, 28f, ColorScheme.BORDER, 0.5f);
             s.drawText(cur.doc, cs,
-                    "Cucumber PDF Reporter v" + VERSION
+                    "Cucumber PDF Reporter v" + FeatureUtils.VERSION
                             + "  |  Apache PDFBox  |  Dashboard",
                     M, 14f, s.regularFont(), 7f, ColorScheme.TEXT_HINT);
         }
@@ -372,14 +343,6 @@ public class DashboardSection {
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
-
-    private String extractCaseId(CucumberFeature f) {
-        String tag = f.extractQtestTag(tagPrefix);
-        if ("UNKNOWN".equals(tag)) return "\u2014";
-        String stripped = tag.toUpperCase().startsWith(tagPrefix.toUpperCase())
-                ? tag.substring(tagPrefix.length()) : tag;
-        return "TC-" + stripped;
-    }
 
     private PDPageContentStream cs(ConsolidatedPageCursor cur) throws IOException {
         return new PDPageContentStream(cur.doc, cur.page,
