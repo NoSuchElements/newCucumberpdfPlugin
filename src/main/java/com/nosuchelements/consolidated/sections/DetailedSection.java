@@ -1,6 +1,5 @@
 package com.nosuchelements.consolidated.sections;
 
-import com.nosuchelements.consolidated.ContentBlockRenderer;
 import com.nosuchelements.consolidated.ConsolidatedPageCursor;
 import com.nosuchelements.consolidated.SectionHeader;
 import com.nosuchelements.consolidated.TableOfContents;
@@ -18,43 +17,21 @@ import java.util.List;
 
 /**
  * Detailed section — step-by-step breakdown for every scenario across all features.
- *
- * <h3>Page structure per scenario</h3>
- * <pre>
- * ┌──────────────────────────────────────────────────────────┐
- * │  Feature Name  (breadcrumb)                              │  ← slate-900 band
- * │  Scenario Name                            [PASSED] 2.3s │
- * └──────────────────────────────────────────────────────────┘
- *   [Background steps, if any]
- *   [Before-hook errors + screenshots]
- *   ●  Given  I navigate to the homepage                10ms
- *   ●  When   I click the login button                  22ms
- *   ●  Then   I should see the dashboard                18ms
- *       And   the menu is visible                        5ms    ← italic, indented (F-01)
- *   [Error block if failed]
- *   [Step output logs]
- *   [Data table if present]
- *   [DocString if present]
- *   [Step screenshots if present]
- *   [After-hook errors + screenshots]
- * </pre>
- *
- * <p>Delegates all block rendering to {@link ContentBlockRenderer}.</p>
  */
 public class DetailedSection {
 
     private static final float M    = ConsolidatedPageCursor.MARGIN_H;
     private static final float CW   = ConsolidatedPageCursor.CONTENT_W;
-    private static final float SHDR = 38f;   // scenario header band height
+    private static final float SHDR = 46f;   // scenario header band height (was 38f)
     private static final float LSM  = 11f;
     private static final float LMD  = 15f;
 
     private final PdfStyler            styler;
-    private final ContentBlockRenderer renderer;
+    private final com.nosuchelements.consolidated.ContentBlockRenderer renderer;
 
     public DetailedSection(PdfStyler styler, int maxOutputLines) {
         this.styler   = styler;
-        this.renderer = new ContentBlockRenderer(styler, maxOutputLines);
+        this.renderer = new com.nosuchelements.consolidated.ContentBlockRenderer(styler, maxOutputLines);
     }
 
     // -----------------------------------------------------------------------
@@ -131,7 +108,7 @@ public class DetailedSection {
                                      CucumberScenario sc) throws IOException {
         String st       = sc.getStatus();
         String featName = trunc(safe(feature.getName()), 65);
-        String scenName = trunc(safe(sc.getName()), 68);
+        String scenName = safe(sc.getName());
         float  W        = ConsolidatedPageCursor.PAGE_W;
 
         try (PDPageContentStream cs = cs(cur)) {
@@ -145,10 +122,17 @@ public class DetailedSection {
                     M + 8f, cur.y - 11f,
                     styler.regularFont(), 7f, ColorScheme.TEXT_HINT);
 
-            // Scenario name  (main line, bold, white)
-            styler.drawText(cur.doc, cs, scenName,
+            // Scenario name: allow up to two lines if it is long
+            int   maxChars = 68;
+            String[] lines = wrapScenarioName(scenName, maxChars);
+            styler.drawText(cur.doc, cs, lines[0],
                     M + 8f, cur.y - 26f,
                     styler.boldFont(), 11f, ColorScheme.TEXT_WHITE);
+            if (lines.length > 1 && !lines[1].isEmpty()) {
+                styler.drawText(cur.doc, cs, lines[1],
+                        M + 8f, cur.y - 26f - LMD,
+                        styler.boldFont(), 11f, ColorScheme.TEXT_WHITE);
+            }
 
             // Status badge  (right side, vertically centred)
             float bW = 66f, bH = 17f;
@@ -164,6 +148,23 @@ public class DetailedSection {
                     styler.regularFont(), 8f, ColorScheme.TEXT_HINT);
         }
         cur.advance(SHDR + 5f);
+    }
+
+    private String[] wrapScenarioName(String name, int maxChars) {
+        if (name == null || name.isEmpty()) return new String[]{""};
+        if (name.length() <= maxChars)      return new String[]{name};
+        String sub = name.substring(0, maxChars);
+        int sp = sub.lastIndexOf(' ');
+        if (sp > 0) {
+            String rest = name.substring(sp + 1);
+            String line2 = rest.length() > maxChars
+                    ? rest.substring(0, maxChars - 3) + "..." : rest;
+            return new String[]{ name.substring(0, sp), line2 };
+        }
+        String line2 = name.length() > maxChars * 2
+                ? name.substring(maxChars, maxChars * 2 - 3) + "..."
+                : name.substring(maxChars);
+        return new String[]{ name.substring(0, maxChars), line2 };
     }
 
     // -----------------------------------------------------------------------
@@ -225,6 +226,7 @@ public class DetailedSection {
                 }
                 cur.advance(LMD);
                 renderer.renderErrorBlock(cur, err, 8);
+                cur.advance(6f); // extra gap after error block before next content
             }
 
             // Screenshots captured by the hook (e.g. after-hook failure screenshot)
@@ -245,11 +247,11 @@ public class DetailedSection {
         String nm   = safe(step.getName());
         String st   = step.getStatus();
         long   dur  = step.getDurationMillis();
-        boolean cont = ContentBlockRenderer.isContinuationKeyword(kw);
+        boolean cont = com.nosuchelements.consolidated.ContentBlockRenderer.isContinuationKeyword(kw);
 
         // Pre-compute wrap to know height before drawing
-        int      avail = ContentBlockRenderer.availStepChars(kw.length(), cont);
-        String[] nml   = ContentBlockRenderer.wrapStepName(nm, avail);
+        int      avail = com.nosuchelements.consolidated.ContentBlockRenderer.availStepChars(kw.length(), cont);
+        String[] nml   = com.nosuchelements.consolidated.ContentBlockRenderer.wrapStepName(nm, avail);
         float    stepH = nml.length > 1 ? LMD * 2f + 4f : LMD + 4f;
         cur.ensureSpace(stepH);
 
@@ -298,6 +300,7 @@ public class DetailedSection {
         String err = step.getErrorMessage();
         if (err != null && !err.isEmpty()) {
             renderer.renderErrorBlock(cur, err, 8);
+            cur.advance(6f); // extra gap after error block before next content
         }
         if (!step.getOutputLines().isEmpty()) {
             renderer.renderLogs(cur, step.getOutputLines(), null);
