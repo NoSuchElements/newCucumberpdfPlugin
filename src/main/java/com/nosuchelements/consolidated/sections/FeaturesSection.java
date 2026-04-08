@@ -15,10 +15,6 @@ import java.util.List;
 
 /**
  * Features section — one row per feature with stats and qTest/case-ID tag.
- *
- * The Case ID column uses the configured tagPrefix to locate the tag on each
- * feature, strips the prefix (and any leading '@'), and renders it as "TC_####".
- * Features with no matching tag show "NA".
  */
 public class FeaturesSection {
 
@@ -149,23 +145,13 @@ public class FeaturesSection {
             s.hLine(cs, M, M + CW, cur.y, ColorScheme.BORDER, 0.5f);
             cur.advance(6f);
             s.drawText(cur.doc, cs,
-                    "Total: " + tf + " features  \u2014  "
+                    "Total: " + tf + " features  |  "
                     + pf + " passed   " + ff + " failed   " + (tf - pf - ff) + " skipped",
                     M, cur.y - 10f, s.boldFont(), 8.5f, ColorScheme.TEXT_SECONDARY);
         }
         cur.advance(18f);
     }
 
-    /**
-     * Extract the case-ID tag using the configured prefix and format as "TC_####".
-     *
-     * Normalises both the prefix and each tag by stripping a leading '@' and
-     * doing a case-insensitive comparison, so all of the following work:
-     *   tagPrefix = "QTEST_TC_"  and tag = "@QTEST_TC_1001"  → "TC_1001"
-     *   tagPrefix = "@QTEST_TC_" and tag = "qtest_tc_5050"   → "TC_5050"
-     *
-     * Returns "NA" when no matching tag is found or tagPrefix is blank.
-     */
     private String extractCaseId(CucumberFeature f) {
         if (tagPrefix == null || tagPrefix.isBlank()) {
             return "NA";
