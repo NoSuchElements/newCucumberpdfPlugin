@@ -14,7 +14,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Slow Tests section — top-N slowest scenarios sorted by duration descending.
+ * Slow Tests section -- top-N slowest scenarios sorted by duration descending.
  *
  * <p>Controlled by {@code displaySlowTests=true} and {@code slowTestTopN} (default 15).
  * This section is invaluable for CI pipeline performance tuning: it highlights
@@ -22,13 +22,13 @@ import java.util.stream.Collectors;
  * parallelisation or optimisation.</p>
  *
  * <pre>
- * ┌──────────────────────────────────────────────────────────────────────┐
- * │  #  │  Scenario                    │  Feature          │  Duration  │
- * ├──────────────────────────────────────────────────────────────────────┤
- * │  1  │  Full checkout flow          │  Shopping Cart    │   12.4s    │
- * │  2  │  Login with LDAP             │  Authentication   │    8.7s    │
- * │  …                                                                   │
- * └──────────────────────────────────────────────────────────────────────┘
+ * +----------------------------------------------------------------------+
+ * |  #  |  Scenario                    |  Feature          |  Duration  |
+ * +----------------------------------------------------------------------+
+ * |  1  |  Full checkout flow          |  Shopping Cart    |   12.4s    |
+ * |  2  |  Login with LDAP             |  Authentication   |    8.7s    |
+ * |  ...                                                                 |
+ * +----------------------------------------------------------------------+
  * </pre>
  */
 public class SlowTestsSection {
@@ -73,12 +73,12 @@ public class SlowTestsSection {
 
         ConsolidatedPageCursor cur = new ConsolidatedPageCursor(doc, firstPage, s, "Slow Tests");
 
-        // Section header
+        // Section header -- ASCII-only title (no Unicode em-dash)
         try (PDPageContentStream cs = cs(cur)) {
             float W = ConsolidatedPageCursor.PAGE_W;
             s.fillRect(cs, 0, cur.y - 36f, W, 36f, ColorScheme.HEADER);
             s.fillRect(cs, 0, cur.y - 36f, W, 3f, ColorScheme.SKIPPED);
-            s.drawText(cur.doc, cs, "Slow Tests — Top " + top.size(),
+            s.drawText(cur.doc, cs, "Slow Tests - Top " + top.size(),
                     M, cur.y - 24f, s.boldFont(), 14f, ColorScheme.TEXT_WHITE);
             String sub = "sorted by duration descending";
             s.drawText(cur.doc, cs, sub,
@@ -158,7 +158,7 @@ public class SlowTestsSection {
             s.drawText(cur.doc, cs, st, C_ST, ry,
                     s.boldFont(), 8f, ColorScheme.textForStatus(st));
 
-            // Duration — bold, coloured by severity
+            // Duration -- bold, coloured by severity
             java.awt.Color durColor = dur > 10_000 ? ColorScheme.FAILED
                     : dur > 5_000  ? ColorScheme.SKIPPED
                     : ColorScheme.TEXT_SECONDARY;

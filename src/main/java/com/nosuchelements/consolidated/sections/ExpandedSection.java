@@ -16,24 +16,24 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * Expanded section — screenshots and full attachments, one group per scenario.
+ * Expanded section -- screenshots and full attachments, one group per scenario.
  *
  * <p>Only included when {@code displayExpanded=true} in the Mojo configuration.
  * Delegates all image rendering to {@link ContentBlockRenderer}.</p>
  *
  * <h3>Layout per scenario that has screenshots</h3>
  * <pre>
- * ┌──────────────────────────────────────────────────────────────┐
- * │  Feature Name  (breadcrumb)                [PASSED badge]   │
- * │  Scenario Name                                              │
- * └──────────────────────────────────────────────────────────────┘
+ * +--------------------------------------------------------------+
+ * |  Feature Name  (breadcrumb)                [PASSED badge]   |
+ * |  Scenario Name                                              |
+ * +--------------------------------------------------------------+
  *   Screenshots
- *   ┌────────────────────────────────────────────────────────┐
- *   │  [image 1 — full width, up to 490×310pt]               │
- *   └────────────────────────────────────────────────────────┘
- *   ┌────────────────────────────────────────────────────────┐
- *   │  [image 2]                                             │
- *   └────────────────────────────────────────────────────────┘
+ *   +------------------------------------------------------------+
+ *   |  [image 1 -- full width, up to 490x310pt]                  |
+ *   +------------------------------------------------------------+
+ *   +------------------------------------------------------------+
+ *   |  [image 2]                                                 |
+ *   +------------------------------------------------------------+
  * </pre>
  *
  * <p>Scenarios with no screenshots are silently skipped. If the entire
@@ -66,8 +66,9 @@ public class ExpandedSection {
 
         toc.add("Expanded", cur.currentPageIndex());
 
+        // ASCII-only title: replaced em-dash with " - "
         SectionHeader.draw(cur, styler,
-                "Expanded — Screenshots & Attachments", null,
+                "Expanded - Screenshots & Attachments", null,
                 ColorScheme.PENDING);
 
         boolean anyScreenshots = false;
