@@ -5,6 +5,7 @@ import com.nosuchelements.consolidated.SectionHeader;
 import com.nosuchelements.consolidated.TableOfContents;
 import com.nosuchelements.cucumber.model.CucumberFeature;
 import com.nosuchelements.cucumber.model.CucumberScenario;
+import com.nosuchelements.cucumber.model.CucumberStep;
 import com.nosuchelements.pdf.ColorScheme;
 import com.nosuchelements.pdf.PdfStyler;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -12,30 +13,10 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.List;
 
 /**
  * Tag Statistics section — mirrors the grasshopper7 "tags" section.
- *
- * <p>Scans all features and scenarios for tags, then produces a sorted table
- * showing each unique tag alongside its scenario pass/fail/skip counts and
- * an inline progress bar.</p>
- *
- * <h3>Example output</h3>
- * <pre>
- * ╔════════════════════════════════════════════════════════╗
- * ║  TAG STATISTICS                          18 unique tags║
- * ╚════════════════════════════════════════════════════════╝
- *
- * │ Tag              │ Total │ Pass │ Fail │ Skip │ Progress         │
- * │ @smoke           │  8    │   7  │   1  │   0  │ ███████░         │
- * │ @regression      │ 15    │  14  │   1  │   0  │ ██████████████░  │
- * │ @QTEST_TC_1001   │  1    │   1  │   0  │   0  │ ████████████████ │
- * ...
- * </pre>
- *
- * <p>Tags are sorted: failing tags first (by fail count desc), then passing
- * by total scenarios desc. This surfaces broken tags immediately.</p>
  */
 public class TagStatsSection {
 
@@ -67,7 +48,7 @@ public class TagStatsSection {
                       TableOfContents toc) throws IOException {
 
         // --- Aggregate tag stats ---
-        Map<String, TagStat> tagMap = new LinkedHashMap<>();
+        java.util.Map<String, TagStat> tagMap = new java.util.LinkedHashMap<>();
         collectTagStats(features, tagMap);
 
         // If no tags: render a notice on the pre-allocated page rather than leaving it blank.
@@ -86,8 +67,8 @@ public class TagStatsSection {
         }
 
         // Sort: failing tags first, then by total desc
-        List<TagStat> sorted = new ArrayList<>(tagMap.values());
-        sorted.sort(Comparator
+        java.util.List<TagStat> sorted = new java.util.ArrayList<>(tagMap.values());
+        sorted.sort(java.util.Comparator
                 .<TagStat>comparingInt(t -> -t.failed)
                 .thenComparingInt(t -> -t.total));
 
@@ -117,13 +98,13 @@ public class TagStatsSection {
     // Data collection
     // -----------------------------------------------------------------------
 
-    private void collectTagStats(List<CucumberFeature> features,
-                                  Map<String, TagStat> tagMap) {
+    private void collectTagStats(java.util.List<CucumberFeature> features,
+                                  java.util.Map<String, TagStat> tagMap) {
         for (CucumberFeature feature : features) {
             for (CucumberScenario sc : feature.getActualScenarios()) {
                 String status = sc.getStatus();
                 // Merge feature-level tags and scenario-level tags
-                Set<String> tags = new LinkedHashSet<>(feature.getTags());
+                java.util.Set<String> tags = new java.util.LinkedHashSet<>(feature.getTags());
                 tags.addAll(sc.getTags());
                 for (String tag : tags) {
                     if (tag == null || tag.isBlank()) continue;
@@ -185,14 +166,14 @@ public class TagStatsSection {
                 styler.drawText(cur.doc, cs, str(tag.failed),
                         C_FAIL, ry, styler.boldFont(), 8.5f, ColorScheme.FAILED_TEXT);
             } else {
-                styler.drawText(cur.doc, cs, "—",
+                styler.drawText(cur.doc, cs, "-",
                         C_FAIL, ry, styler.regularFont(), 8.5f, ColorScheme.TEXT_HINT);
             }
             if (tag.skipped > 0) {
                 styler.drawText(cur.doc, cs, str(tag.skipped),
                         C_SKIP, ry, styler.regularFont(), 8.5f, ColorScheme.SKIPPED_TEXT);
             } else {
-                styler.drawText(cur.doc, cs, "—",
+                styler.drawText(cur.doc, cs, "-",
                         C_SKIP, ry, styler.regularFont(), 8.5f, ColorScheme.TEXT_HINT);
             }
 
@@ -213,13 +194,13 @@ public class TagStatsSection {
     }
 
     private void drawSectionFooter(ConsolidatedPageCursor cur,
-                                    List<TagStat> sorted) throws IOException {
+                                    java.util.List<TagStat> sorted) throws IOException {
         long failingTags = sorted.stream().filter(t -> t.failed > 0).count();
         cur.ensureSpace(20f);
         try (PDPageContentStream cs = cs(cur)) {
             styler.hLine(cs, M, M + CW, cur.y, ColorScheme.BORDER, 0.5f);
             cur.advance(6f);
-            String summary = sorted.size() + " tags  —  " + failingTags + " with failures";
+            String summary = sorted.size() + " tags  |  " + failingTags + " with failures";
             styler.drawText(cur.doc, cs, summary,
                     M, cur.y - 10f, styler.boldFont(), 8.5f, ColorScheme.TEXT_SECONDARY);
         }
