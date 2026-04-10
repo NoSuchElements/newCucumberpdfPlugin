@@ -180,7 +180,16 @@ public class CucumberJsonParser {
 
         // Embeddings on the step directly (step-level screenshots)
         step.getEmbeddings().addAll(parseEmbeddings(obj));
-
+        // Location 3: Cucumber 7 @AfterStep — your hook pattern writes here
+        if (obj.has("after")) {
+           for (JsonElement afterEl : obj.getAsJsonArray("after")) {
+               JsonObject afterObj = afterEl.getAsJsonObject();
+               step.getEmbeddings().addAll(parseEmbeddings(afterObj));
+            if (afterObj.has("result")) {
+               step.getEmbeddings().addAll(parseEmbeddings(afterObj.getAsJsonObject("result")));
+                }
+              }
+            }
         // DataTable rows
         if (obj.has("rows")) {
             List<CucumberTableRow> rows = new ArrayList<>();
